@@ -1,4 +1,5 @@
 import { bus } from "../shared/bus.js";
+import { createArtifactDraft } from "./artifact.js";
 import { createGate } from "./gate.js";
 
 const EXECUTION_MODEL =
@@ -178,12 +179,15 @@ export function createSurface({
   const gate = createGate();
   let submitController = null;
   let definitions;
+  let boundVerdict = null;
+  let timeline = [];
 
   const connectedGate = {
     getState: gate.getState,
     async setDraft(code) {
       const wasOpen = gate.getState().gateOpen;
       const state = await gate.setDraft(code);
+      boundVerdict = null;
 
       if (wasOpen) {
         submitController.abort();
@@ -204,9 +208,12 @@ export function createSurface({
     onVerdict(verdict) {
       const wasOpen = gate.getState().gateOpen;
       const state = gate.onVerdict(verdict);
+      const at = new Date().toISOString();
 
       eventBus.emit("run", { verdict });
+      timeline = [...timeline, { at, event: "run", detail: verdict.reason }];
       if (!wasOpen && state.gateOpen) {
+        boundVerdict = verdict;
         submitController = new AbortController();
         modelContext.registerTool(definitions.submit_report, {
           signal: submitController.signal,
@@ -227,7 +234,17 @@ export function createSurface({
     gate: connectedGate,
     runDifferential,
     requestHumanReview,
-    stageReport,
+    async stageReport(state) {
+      const at = new Date().toISOString();
+      const artifactDraft = createArtifactDraft({
+        target,
+        gateState: state,
+        verdict: boundVerdict,
+        timeline: [...timeline, { at, event: "staged", detail: "" }],
+      });
+      eventBus.emit("staged", { artifactDraft });
+      await stageReport(artifactDraft);
+    },
   });
   registerAlwaysAvailableTools(modelContext, definitions);
 

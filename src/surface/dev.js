@@ -1,5 +1,6 @@
 import { bus } from "../shared/bus.js";
 import { sha256Hex } from "../shared/hash.js";
+import { initSigning } from "./sign.js";
 import { createSurface } from "./surface.js";
 
 const allowedMocks = new Set(["green", "failboth", "inverted"]);
@@ -23,12 +24,14 @@ const target = {
   goodVersion: "1.0.0",
   badSha256: fixture.runs[0].bundleSha256,
   goodSha256: fixture.runs[1].bundleSha256,
+  issueUrl: null,
+  kind: "seed",
 };
 const output = document.querySelector("#events");
 const log = (type, detail) => {
   output.textContent += `${type} ${JSON.stringify(detail)}\n`;
 };
-for (const type of ["draft", "run", "surface"]) {
+for (const type of ["draft", "run", "surface", "staged", "signed"]) {
   bus.on(type, (detail) => log(type, detail));
 }
 const surface = createSurface({
@@ -40,9 +43,13 @@ const surface = createSurface({
   async requestHumanReview(note) {
     log("review", { note });
   },
-  async stageReport(state) {
-    log("staged", { reproSha256: state.draftSha });
-  },
+  async stageReport() {},
+});
+
+initSigning({
+  button: document.querySelector("#sign"),
+  status: document.querySelector("#submission-status"),
+  getGateState: surface.gate.getState,
 });
 
 document.querySelector("#environment").textContent =

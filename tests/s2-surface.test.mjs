@@ -14,6 +14,8 @@ const target = {
   goodVersion: "1.0.0",
   badSha256: "a".repeat(64),
   goodSha256: "b".repeat(64),
+  issueUrl: null,
+  kind: "seed",
 };
 
 const descriptions = {
@@ -182,6 +184,7 @@ test("submit_report stages only a SHA-bound draft", async () => {
 function setupSurface(verdictForCode) {
   const registrations = [];
   const events = [];
+  const stages = [];
   const surface = createSurface({
     modelContext: {
       registerTool(definition, options) {
@@ -193,14 +196,16 @@ function setupSurface(verdictForCode) {
       return verdictForCode(code, surface.gate.getState().draftSha);
     },
     async requestHumanReview() {},
-    async stageReport() {},
+    async stageReport(artifactDraft) {
+      stages.push(artifactDraft);
+    },
     eventBus: {
       emit(type, detail) {
         events.push({ type, detail });
       },
     },
   });
-  return { events, registrations, surface };
+  return { events, registrations, stages, surface };
 }
 
 test("matching green registers submit_report with a signal and emits contract events", async () => {
@@ -279,4 +284,39 @@ test("non-green runs emit run events without registering submit_report", async (
 
   assert.equal(registrations.length, 4);
   assert.deepEqual(events.at(-1), { type: "run", detail: { verdict } });
+});
+
+test("submit_report emits and hands off the staged artifact draft", async () => {
+  const { events, stages, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "REGRESSION_DEMONSTRATED",
+    reproSha256,
+    runs: [
+      {
+        version: "bad",
+        verdict: "fail",
+        logs: [],
+        durationMs: 12,
+        bundleSha256: target.badSha256,
+      },
+      {
+        version: "good",
+        verdict: "pass",
+        logs: [],
+        durationMs: 10,
+        bundleSha256: target.goodSha256,
+      },
+    ],
+  }));
+  await surface.definitions.write_repro.execute({ code: "verified repro" });
+  await surface.definitions.run_repro.execute({});
+
+  await surface.definitions.submit_report.execute({});
+
+  const event = events.find(({ type }) => type === "staged");
+  assert.equal(event.detail.artifactDraft.repro, "verified repro");
+  assert.equal(event.detail.artifactDraft.reproSha256, surface.gate.getState().draftSha);
+  assert.equal(event.detail.artifactDraft.runs[0].bundleSha256, target.badSha256);
+  assert.equal(stages.length, 1);
+  assert.equal(stages[0], event.detail.artifactDraft);
 });
