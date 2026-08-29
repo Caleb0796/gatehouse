@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createToolInvoker, run } from "./simagent.js";
+import {
+  DEMO_TARGET_ID,
+  createToolInvoker,
+  init,
+  isDemoMode,
+  prewarmDemo,
+  run,
+} from "./simagent.js";
 
 const target = {
   demoRepros: {
@@ -93,4 +100,103 @@ test("a missing dynamic submit tool stops the run and reports the failed step", 
   );
   assert.equal(steps.at(-1).tool, "submit_report");
   assert.equal(steps.at(-1).state, "error");
+});
+
+test("demo mode only activates for demo=1", () => {
+  assert.equal(isDemoMode("?demo=1"), true);
+  assert.equal(isDemoMode("?demo=0"), false);
+  assert.equal(isDemoMode("?target=another&demo=1"), true);
+});
+
+test("demo mode puts the agent start button first", () => {
+  class FakeElement {
+    constructor() {
+      this.children = [];
+      this.className = "";
+    }
+
+    addEventListener() {}
+
+    append(...children) {
+      this.children.push(...children);
+    }
+
+    replaceChildren(...children) {
+      this.children = children;
+    }
+
+    setAttribute() {}
+  }
+
+  const document = {
+    defaultView: { location: { search: "?target=ignored&demo=1" } },
+    createElement: () => new FakeElement(),
+  };
+  const root = new FakeElement();
+
+  const { button } = init(root, { document, target, getToolTable: () => ({}) });
+
+  assert.equal(root.children[0], button);
+  assert.equal(root.className, "simagent simagent--demo");
+});
+
+test("demo prewarm fixes the target and warms both bundles with empty runs", async () => {
+  const calls = [];
+  const loaded = {
+    manifest: { id: DEMO_TARGET_ID, globalName: "Qs" },
+    bundles: {
+      bad: { sha256: "bad-sha", text: "bad bundle" },
+      good: { sha256: "good-sha", text: "good bundle" },
+    },
+  };
+  const runner = {
+    async load(bundles) {
+      calls.push(["load", bundles]);
+    },
+    async run(input) {
+      calls.push(["run", input]);
+      return { verdict: "pass" };
+    },
+    destroy() {
+      calls.push(["destroy"]);
+    },
+  };
+
+  const result = await prewarmDemo({
+    async loadTarget(targetId) {
+      calls.push(["target", targetId]);
+      return loaded;
+    },
+    createRunner: () => runner,
+  });
+
+  assert.equal(result, loaded);
+  assert.deepEqual(calls[0], ["target", DEMO_TARGET_ID]);
+  assert.deepEqual(calls[1], ["load", [loaded.bundles.bad, loaded.bundles.good]]);
+  assert.deepEqual(calls.slice(2, 4).map(([, input]) => input), [
+    { bundleSha: "bad-sha", globalName: "Qs", code: "", timeoutMs: 2_000 },
+    { bundleSha: "good-sha", globalName: "Qs", code: "", timeoutMs: 2_000 },
+  ]);
+  assert.deepEqual(calls.at(-1), ["destroy"]);
+});
+
+test("demo prewarm destroys the runner when a warm run fails", async () => {
+  let destroyed = false;
+  const loaded = {
+    manifest: { globalName: "Qs" },
+    bundles: {
+      bad: { sha256: "bad-sha", text: "bad bundle" },
+      good: { sha256: "good-sha", text: "good bundle" },
+    },
+  };
+
+  await assert.rejects(prewarmDemo({
+    loadTarget: async () => loaded,
+    createRunner: () => ({
+      load: async () => {},
+      run: async () => { throw new Error("warm failed"); },
+      destroy: () => { destroyed = true; },
+    }),
+  }), /warm failed/);
+  assert.equal(destroyed, true);
 });

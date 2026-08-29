@@ -15,6 +15,7 @@ body { display: grid; gap: 1rem; margin: 1.5rem auto; max-width: 72rem; padding:
 .simagent__mode { padding: 0.5rem; }
 .simagent__mode--simulated { background: #fff3c4; color: #674d00; }
 .simagent__start { cursor: pointer; font-weight: 800; padding: 0.8rem; }
+.simagent--demo .simagent__start { font-size: 1.05rem; order: -1; }
 .simagent__steps { margin: 0; padding-left: 1.5rem; }
 .simagent__step--complete { color: #126b37; }
 .simagent__step--error { color: #8d1d16; }
@@ -25,6 +26,7 @@ body { display: grid; gap: 1rem; margin: 1.5rem auto; max-width: 72rem; padding:
 <header id="env-banner"></header>
 <main>
 <h1>S4 judge experience mock</h1>
+<p id="prewarm-status" hidden>Prewarming demo…</p>
 <div class="demo-grid">
 <section id="simagent"></section>
 <div>

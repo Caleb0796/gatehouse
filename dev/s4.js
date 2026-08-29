@@ -1,20 +1,68 @@
 import { init as initBanner } from "/src/ui/banner.js";
 import { init as initTimeline } from "/src/ui/timeline.js";
-import { init as initSimagent } from "/src/simagent/simagent.js";
+import {
+  DEMO_TARGET_ID,
+  init as initSimagent,
+  isDemoMode,
+  prewarmDemo,
+} from "/src/simagent/simagent.js";
 import { bus } from "/src/shared/bus.js";
 
 initBanner(document.querySelector("#env-banner"));
 initTimeline(document.querySelector("#timeline"), { bus });
 
 const target = {
-  id: "marked-1234",
-  library: "marked",
+  id: DEMO_TARGET_ID,
+  library: "qs",
   demoRepros: {
-    broken: "assert(false, 'first attempt fails on both builds')",
-    weak: "assert(true, 'weak attempt passes on both builds')",
-    real: "assert(marked.parse('\\\\*') === '<p>*</p>', 'regression reproduced')",
+    broken: "assert(false, \"I have not isolated the regression yet\");",
+    weak: "const parsed = Qs.parse(\"a=b\");\nassert(parsed.a === \"b\", \"basic query parsing should work\");",
+    real: "const parsed = Qs.parse(\"a%252Eb=c\");\nassert(Object.keys(parsed).length === 1 && parsed[\"a%2Eb\"] === \"c\", \"encoded dots must stay encoded by default\");",
   },
 };
+
+const demoMode = isDemoMode(location.search);
+const prewarmStatus = document.querySelector("#prewarm-status");
+
+function createMockPrewarmDeps() {
+  const bundles = {
+    bad: { sha256: "mock-bad-bundle", text: "globalThis.Qs = {}" },
+    good: { sha256: "mock-good-bundle", text: "globalThis.Qs = {}" },
+  };
+  return {
+    async loadTarget(id) {
+      const responses = await Promise.all([
+        fetch("/contracts/fixtures/differential-failboth.json"),
+        fetch("/contracts/fixtures/differential-green.json"),
+      ]);
+      if (responses.some(response => !response.ok)) throw new Error("Mock bundle fetch failed");
+      return { manifest: { ...target, id, globalName: "Qs" }, bundles };
+    },
+    createRunner() {
+      return {
+        async load() {},
+        async run() { return { verdict: "pass", logs: [], durationMs: 0 }; },
+        destroy() {},
+      };
+    },
+  };
+}
+
+if (demoMode) {
+  prewarmStatus.hidden = false;
+  try {
+    let deps;
+    try {
+      deps = await import("/src/sandbox/runner.js");
+    } catch {
+      deps = createMockPrewarmDeps();
+    }
+    await prewarmDemo(deps);
+    prewarmStatus.textContent = `Demo ready · fixed target ${DEMO_TARGET_ID} · both bundles and worker path prewarmed`;
+  } catch (error) {
+    prewarmStatus.textContent = `Demo prewarm failed: ${error.message}`;
+  }
+}
 
 let draft = "";
 let runCount = 0;
@@ -75,14 +123,14 @@ function getToolTable() {
   return table;
 }
 
-initSimagent(document.querySelector("#simagent"), { target, getToolTable });
+initSimagent(document.querySelector("#simagent"), { target, getToolTable, demoMode });
 
 const mockEvents = [
   ["draft", { reproSha256: "95c0868307c15a55", length: 198 }],
   ["run", { verdict: { green: false, reason: "FAIL_BOTH" } }],
-  ["staged", { artifactDraft: { targetId: "marked-1234" } }],
+  ["staged", { artifactDraft: { targetId: DEMO_TARGET_ID } }],
   ["surface", { change: "registered", tool: "submit_report", reason: "differential green", at: Date.now() }],
-  ["signed", { artifact: { targetId: "marked-1234" } }],
+  ["signed", { artifact: { targetId: DEMO_TARGET_ID } }],
 ];
 
 const controls = document.querySelector("#timeline-controls");

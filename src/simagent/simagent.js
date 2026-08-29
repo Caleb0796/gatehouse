@@ -4,6 +4,36 @@ const ROUNDS = [
   ["real", "Regression repro"],
 ];
 
+export const DEMO_TARGET_ID = "qs-500";
+
+export function isDemoMode(search = "") {
+  return new URLSearchParams(search).get("demo") === "1";
+}
+
+export async function prewarmDemo({ loadTarget, createRunner }) {
+  if (typeof loadTarget !== "function" || typeof createRunner !== "function") {
+    throw new TypeError("demo prewarm requires loadTarget and createRunner");
+  }
+
+  const loaded = await loadTarget(DEMO_TARGET_ID);
+  const { manifest, bundles } = loaded;
+  const runner = createRunner();
+
+  try {
+    await runner.load([bundles.bad, bundles.good]);
+    await Promise.all([bundles.bad, bundles.good].map(bundle => runner.run({
+      bundleSha: bundle.sha256,
+      globalName: manifest.globalName,
+      code: "",
+      timeoutMs: 2_000,
+    })));
+  } finally {
+    runner.destroy();
+  }
+
+  return loaded;
+}
+
 function toolName(tool) {
   return tool?.name || tool?.definition?.name;
 }
@@ -88,12 +118,13 @@ export async function run(target, deps = {}) {
 export function init(rootEl, deps = {}) {
   const doc = deps.document || document;
   const modelContext = deps.modelContext === undefined ? doc.modelContext : deps.modelContext;
+  const demoMode = deps.demoMode ?? isDemoMode(deps.search ?? doc.defaultView?.location?.search);
   const hasWebMCP = modelContext
     && typeof modelContext.getTools === "function"
     && typeof modelContext.executeTool === "function";
 
   rootEl.replaceChildren();
-  rootEl.className = "simagent";
+  rootEl.className = demoMode ? "simagent simagent--demo" : "simagent";
 
   const heading = doc.createElement("h2");
   heading.textContent = "Simulated agent";
@@ -115,7 +146,8 @@ export function init(rootEl, deps = {}) {
   list.className = "simagent__steps";
   list.setAttribute("aria-live", "polite");
 
-  rootEl.append(heading, mode, button, status, list);
+  if (demoMode) rootEl.append(button, heading, mode, status, list);
+  else rootEl.append(heading, mode, button, status, list);
 
   button.addEventListener("click", async () => {
     button.disabled = true;
