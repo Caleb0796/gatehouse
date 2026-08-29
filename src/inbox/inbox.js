@@ -1,4 +1,5 @@
 import { bus as sharedBus } from "../shared/bus.js";
+import { initAdopt } from "./adopt.js";
 import { initReplay } from "./replay.js";
 
 export const INBOX_STORAGE_KEY = "gatehouse.inbox.v1";
@@ -93,6 +94,11 @@ function renderDetail(document, root, entry, deps) {
   replay.className = "inbox-replay";
   root.append(replay);
   initReplay(replay, entry.artifact, { runDifferential: deps.runDifferential });
+
+  const adopt = document.createElement("section");
+  adopt.className = "inbox-adopt";
+  root.append(adopt);
+  initAdopt(adopt, entry.artifact, deps);
 }
 
 function render(root, entries, selectedIndex, select, deps) {
