@@ -1,4 +1,6 @@
 import { init as initBanner } from "/src/ui/banner.js";
+import { init as initPrompt } from "/src/ui/prompt.js";
+import { init as initScoreboard } from "/src/ui/scoreboard.js";
 import { init as initTimeline } from "/src/ui/timeline.js";
 import {
   DEMO_TARGET_ID,
@@ -9,7 +11,9 @@ import {
 import { bus } from "/src/shared/bus.js";
 
 initBanner(document.querySelector("#env-banner"));
+initPrompt(document.querySelector("#demo-prompt"));
 initTimeline(document.querySelector("#timeline"), { bus });
+initScoreboard(document.querySelector("#scoreboard"), { bus });
 
 const target = {
   id: DEMO_TARGET_ID,

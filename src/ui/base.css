@@ -52,6 +52,40 @@
   padding: 0.35rem 0.6rem;
 }
 
+.demo-prompt {
+  background: #eef5ff;
+  border: 1px solid #9bbbe5;
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+}
+
+.demo-prompt__heading,
+.demo-prompt__text {
+  margin: 0;
+}
+
+.demo-prompt__copy {
+  cursor: pointer;
+  font-weight: 700;
+  justify-self: start;
+  padding: 0.55rem 0.8rem;
+}
+
+.demo-prompt__status {
+  min-height: 1.2em;
+}
+
+.scoreboard {
+  background: #25231f;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  padding: 0.85rem 1rem;
+  text-align: center;
+}
+
 .timeline {
   --timeline-surface: #7557d3;
   --timeline-run: #167a50;
