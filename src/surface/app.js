@@ -1,11 +1,12 @@
 import { init as initInbox } from "../inbox/inbox.js";
 import { loadTarget, runDifferential as runRealDifferential } from "../sandbox/runner.js";
 import { bus } from "../shared/bus.js";
+import { init as initSimagent, isDemoMode } from "../simagent/simagent.js";
 import { init as initBanner } from "../ui/banner.js";
 import { init as initScoreboard } from "../ui/scoreboard.js";
 import { init as initTimeline } from "../ui/timeline.js";
 import { initSigning } from "./sign.js";
-import { createSurface } from "./surface.js";
+import { createSurface, getToolTable } from "./surface.js";
 
 const TARGET_ID = "qs-500";
 
@@ -86,7 +87,7 @@ function renderEditor(rootEl, initialCode) {
   return { editor, status };
 }
 
-function renderRunPanel(rootEl) {
+function renderRunPanel(rootEl, demoMode) {
   rootEl.className = "panel run-panel";
   appendText(rootEl, "h2", "Differential run");
   const actions = document.createElement("div");
@@ -98,7 +99,13 @@ function renderRunPanel(rootEl) {
   const output = appendText(rootEl, "pre", "Not run yet", "run-panel__output");
   output.setAttribute("aria-live", "polite");
   rootEl.insertBefore(actions, output);
-  return { runButton, reviewButton, output };
+  let simagentRoot = null;
+  if (demoMode) {
+    simagentRoot = document.createElement("section");
+    simagentRoot.className = "simagent-host";
+    rootEl.append(simagentRoot);
+  }
+  return { runButton, reviewButton, output, simagentRoot };
 }
 
 function renderSignPanel(rootEl) {
@@ -125,16 +132,56 @@ function formatRun(result) {
   return `${result.green ? "GREEN" : "NOT GREEN"} · ${result.reason}\n${runs}`;
 }
 
+export function trackDemoE2E(eventBus, body) {
+  const expectedReasons = ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"];
+  let runIndex = 0;
+  let submitRegistered = false;
+  body.dataset.e2e = "ready";
+
+  const unsubscribeRun = eventBus.on("run", ({ verdict }) => {
+    if (verdict?.reason !== expectedReasons[runIndex]) {
+      body.dataset.e2e = "fail";
+      return;
+    }
+    runIndex += 1;
+    body.dataset.e2e = `round-${runIndex}`;
+    body.dataset.e2eRuns = expectedReasons.slice(0, runIndex).join(",");
+  });
+  const unsubscribeSurface = eventBus.on("surface", detail => {
+    if (
+      detail?.change === "registered"
+      && detail.tool === "submit_report"
+      && runIndex === expectedReasons.length
+    ) {
+      submitRegistered = true;
+      body.dataset.e2e = "submit-report-available";
+    }
+  });
+  const unsubscribeStaged = eventBus.on("staged", () => {
+    body.dataset.e2e = runIndex === expectedReasons.length && submitRegistered
+      ? "pass"
+      : "fail";
+  });
+
+  return () => {
+    unsubscribeRun();
+    unsubscribeSurface();
+    unsubscribeStaged();
+  };
+}
+
 export async function initSurface({ runDifferential, target }) {
+  const demoMode = isDemoMode(window.location.search);
   initBanner(requiredElement("env-banner"));
   initTimeline(requiredElement("timeline"), { bus });
   initScoreboard(requiredElement("scoreboard"), { bus });
   initInbox(requiredElement("inbox-root"), { bus, runDifferential });
+  if (demoMode) trackDemoE2E(bus, document.body);
 
   renderTarget(requiredElement("target-panel"), target);
   const initialCode = target.demoRepros?.broken || "";
   const editorView = renderEditor(requiredElement("editor-panel"), initialCode);
-  const runView = renderRunPanel(requiredElement("run-panel"));
+  const runView = renderRunPanel(requiredElement("run-panel"), demoMode);
   const signView = renderSignPanel(requiredElement("sign-panel"));
   const modelContext = document.modelContext || createFallbackModelContext();
   const surface = createSurface({
@@ -150,6 +197,15 @@ export async function initSurface({ runDifferential, target }) {
     },
     async stageReport() {},
   });
+
+  if (runView.simagentRoot) {
+    initSimagent(runView.simagentRoot, {
+      target,
+      modelContext,
+      getToolTable,
+      demoMode,
+    });
+  }
 
   initSigning({
     button: signView.button,

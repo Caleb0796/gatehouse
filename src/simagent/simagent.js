@@ -61,7 +61,12 @@ export function createToolInvoker({ modelContext, getToolTable }) {
         const tools = await modelContext.getTools();
         const tool = tools.find(candidate => toolName(candidate) === name);
         if (!tool) throw new Error(`Tool not available: ${name}`);
-        return modelContext.executeTool(tool, args);
+        // executeTool takes args as a JSON STRING, not an object: Chrome does
+        // JSON.parse(args) then an isObject check. Passing an object raises
+        // "UnknownError: Failed to parse input arguments". Measured 2026-08-29,
+        // Chrome 152.0.7977.64.
+        const raw = await modelContext.executeTool(tool, JSON.stringify(args ?? {}));
+        return typeof raw === "string" ? JSON.parse(raw) : raw;
       },
     };
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { trackDemoE2E } from "../src/surface/app.js";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -37,10 +38,57 @@ test("application assembly uses the real target and all six modules", async () =
     "initScoreboard",
     "initInbox",
     "initSigning",
+    "initSimagent",
     "createSurface",
   ]) {
     assert.match(app, new RegExp(`${initializer}\\(`));
   }
+});
+
+function createEventBus() {
+  const listeners = new Map();
+  return {
+    emit(type, detail) {
+      for (const listener of listeners.get(type) || []) listener(detail);
+    },
+    on(type, listener) {
+      const entries = listeners.get(type) || [];
+      entries.push(listener);
+      listeners.set(type, entries);
+      return () => entries.splice(entries.indexOf(listener), 1);
+    },
+  };
+}
+
+test("demo E2E marker requires all three verdicts, the dynamic tool, and staging", () => {
+  const eventBus = createEventBus();
+  const body = { dataset: {} };
+  trackDemoE2E(eventBus, body);
+
+  for (const reason of ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"]) {
+    eventBus.emit("run", { verdict: { reason } });
+  }
+  eventBus.emit("surface", { change: "registered", tool: "submit_report" });
+  assert.equal(body.dataset.e2e, "submit-report-available");
+
+  eventBus.emit("staged", {});
+
+  assert.equal(body.dataset.e2e, "pass");
+  assert.equal(
+    body.dataset.e2eRuns,
+    "FAIL_BOTH,PASS_BOTH,REGRESSION_DEMONSTRATED",
+  );
+});
+
+test("demo E2E marker fails an out-of-order verdict sequence", () => {
+  const eventBus = createEventBus();
+  const body = { dataset: {} };
+  trackDemoE2E(eventBus, body);
+
+  eventBus.emit("run", { verdict: { reason: "PASS_BOTH" } });
+  eventBus.emit("staged", {});
+
+  assert.equal(body.dataset.e2e, "fail");
 });
 
 test("base stylesheet covers the shell, surface panels, and both color schemes", async () => {
