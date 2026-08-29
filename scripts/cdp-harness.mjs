@@ -10,6 +10,13 @@ function parseToolResult(value) {
   }
 }
 
+function assertSupportedChrome(product) {
+  const major = Number.parseInt(product.match(/^Chrome\/(\d+)/)?.[1] ?? "", 10);
+  if (!Number.isInteger(major) || major < 151) {
+    throw new Error(`Chrome 151 or newer is required, got ${product}`);
+  }
+}
+
 async function importPlaywright() {
   try {
     return await import("playwright");
@@ -47,6 +54,7 @@ export async function launchChromeHarness({
     const page = await context.newPage();
     const cdp = await context.newCDPSession(page);
     const version = await cdp.send("Browser.getVersion");
+    assertSupportedChrome(version.product);
     await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
 
     const getWebMcpTools = () => page.evaluate(async () => {
@@ -135,7 +143,8 @@ export async function launchChromeHarness({
     const navigate = async (nextUrl = targetUrl) => {
       await page.goto(assertHttpUrl(nextUrl), { waitUntil: "domcontentloaded" });
       await page.waitForFunction(
-        () => typeof window.__gatehouseTestHook?.executeTool === "function",
+        () => document.body.dataset.appReady === "true"
+          && typeof window.__gatehouseTestHook?.executeTool === "function",
       );
       await installArtifactCapture();
     };
@@ -153,11 +162,6 @@ export async function launchChromeHarness({
         const body = await response.body();
         await route.fulfill({ response, body: Buffer.concat([body, Buffer.from(" ")]) });
       }, { times: 1 });
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForFunction(
-        () => typeof window.__gatehouseTestHook?.executeTool === "function",
-      );
-      await installArtifactCapture();
     };
 
     const readSignedArtifact = () => page.evaluate(
@@ -208,7 +212,15 @@ export async function launchChromeHarness({
       encodeReceipt,
       interceptBundle,
       navigate,
-      probePage: () => page.evaluate(() => ({ alive: true, at: performance.now() })),
+      probePage: () => page.evaluate(async () => {
+        const startedAt = performance.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return {
+          alive: true,
+          at: performance.now(),
+          recoveryMs: performance.now() - startedAt,
+        };
+      }),
       readSignedArtifact,
       reset: () => navigate(targetUrl),
       close: () => browser.close(),

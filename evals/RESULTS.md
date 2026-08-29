@@ -1,21 +1,27 @@
 # Evaluation results
 
-> Mock logic baseline only. These results do not claim real sandbox or WebMCP coverage.
+> WebMCP cases use native `document.modelContext`; logic cases use the `?test=1` hook. Both tiers execute the real sandbox.
 
-- URL: `http://localhost:8080/dev/s2.html?mock=green&test=1`
+- URL: `http://localhost:8080/?test=1`
 - Chrome: `Chrome/152.0.7977.64`
-- Generated: `2026-08-29T20:51:47.238Z`
+- Generated: `2026-08-29T22:53:44.707Z`
+
+| Tier | Passed | Run | Pass rate |
+| --- | ---: | ---: | ---: |
+| webmcp | 4 | 4 | 100% |
+| logic | 7 | 7 | 100% |
+| overall | 11 | 11 | 100% |
 
 | Case | Tier | Result | Detail |
 | --- | --- | --- | --- |
-| happy-3-round | webmcp | not run | tier deferred |
+| happy-3-round | webmcp | pass | expectations met |
 | assert-false | logic | pass | expectations met |
-| empty-repro | logic | fail | gateOpen: expected false, got true; submit_report present: expected false, got true; reason: expected "PASS_BOTH", got "REGRESSION_DEMONSTRATED"; bad verdict: expected "pass", got "fail" |
-| edit-revokes-tool | webmcp | not run | tier deferred |
-| stale-submit | webmcp | not run | tier deferred |
-| timeout-recovers | logic | fail | gateOpen: expected false, got true; reason: expected "BAD_TIMEOUT", got "REGRESSION_DEMONSTRATED"; bad verdict: expected "timeout", got "fail" |
-| good-error | logic | fail | gateOpen: expected false, got true; submit_report present: expected false, got true; reason: expected "GOOD_ERROR", got "REGRESSION_DEMONSTRATED"; good verdict: expected "error", got "pass" |
-| bundle-sha-tamper | logic | fail | gateOpen: expected false, got true; submit_report present: expected false, got true; run rejected: expected true, got false; error code: expected "BUNDLE_SHA_MISMATCH", got undefined |
-| baseline-tools | webmcp | not run | tier deferred |
+| empty-repro | logic | pass | expectations met |
+| edit-revokes-tool | webmcp | pass | expectations met |
+| stale-submit | webmcp | pass | expectations met |
+| timeout-recovers | logic | pass | expectations met |
+| good-error | logic | pass | expectations met |
+| bundle-sha-tamper | logic | pass | expectations met |
+| baseline-tools | webmcp | pass | expectations met |
 | receipt-round-trip | logic | pass | expectations met |
 | inverted | logic | pass | expectations met |
