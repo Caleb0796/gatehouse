@@ -1,3 +1,6 @@
+import { bus } from "../shared/bus.js";
+import { createGate } from "./gate.js";
+
 const EXECUTION_MODEL =
   "Repro code runs against each pinned library bundle in an isolated sandbox. An assert(condition, message) helper is provided; a repro demonstrates a bug when an assertion fails on the buggy build and passes on the good one.";
 
@@ -91,7 +94,9 @@ export function createToolDefinitions({
         if (state.draftSha === null) {
           return { code: "NO_REPRO", message: "No draft reproduction has been written." };
         }
-        return runDifferential(state.draft, { targetId: target.id });
+        const verdict = await runDifferential(state.draft, { targetId: target.id });
+        gate.onVerdict(verdict);
+        return verdict;
       },
     },
 
@@ -160,4 +165,71 @@ export function registerAlwaysAvailableTools(modelContext, definitions) {
   ]) {
     modelContext.registerTool(definitions[name]);
   }
+}
+
+export function createSurface({
+  modelContext,
+  target,
+  runDifferential,
+  requestHumanReview,
+  stageReport,
+  eventBus = bus,
+}) {
+  const gate = createGate();
+  let submitController = null;
+  let definitions;
+
+  const connectedGate = {
+    getState: gate.getState,
+    async setDraft(code) {
+      const wasOpen = gate.getState().gateOpen;
+      const state = await gate.setDraft(code);
+
+      if (wasOpen) {
+        submitController.abort();
+        submitController = null;
+        eventBus.emit("surface", {
+          change: "revoked",
+          tool: "submit_report",
+          reason: "repro edited",
+          at: Date.now(),
+        });
+      }
+      eventBus.emit("draft", {
+        reproSha256: state.draftSha,
+        length: state.draft.length,
+      });
+      return state;
+    },
+    onVerdict(verdict) {
+      const wasOpen = gate.getState().gateOpen;
+      const state = gate.onVerdict(verdict);
+
+      eventBus.emit("run", { verdict });
+      if (!wasOpen && state.gateOpen) {
+        submitController = new AbortController();
+        modelContext.registerTool(definitions.submit_report, {
+          signal: submitController.signal,
+        });
+        eventBus.emit("surface", {
+          change: "registered",
+          tool: "submit_report",
+          reason: "differential green",
+          at: Date.now(),
+        });
+      }
+      return state;
+    },
+  };
+
+  definitions = createToolDefinitions({
+    target,
+    gate: connectedGate,
+    runDifferential,
+    requestHumanReview,
+    stageReport,
+  });
+  registerAlwaysAvailableTools(modelContext, definitions);
+
+  return { gate: connectedGate, definitions };
 }

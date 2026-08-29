@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createGate } from "../src/surface/gate.js";
 import {
+  createSurface,
   createToolDefinitions,
   registerAlwaysAvailableTools,
 } from "../src/surface/surface.js";
@@ -176,4 +177,106 @@ test("submit_report stages only a SHA-bound draft", async () => {
   assert.equal(calls.stages.length, 1);
   assert.equal(calls.stages[0].draftSha, draftSha);
   assert.equal(calls.stages[0].boundSha, draftSha);
+});
+
+function setupSurface(verdictForCode) {
+  const registrations = [];
+  const events = [];
+  const surface = createSurface({
+    modelContext: {
+      registerTool(definition, options) {
+        registrations.push({ definition, options });
+      },
+    },
+    target,
+    async runDifferential(code) {
+      return verdictForCode(code, surface.gate.getState().draftSha);
+    },
+    async requestHumanReview() {},
+    async stageReport() {},
+    eventBus: {
+      emit(type, detail) {
+        events.push({ type, detail });
+      },
+    },
+  });
+  return { events, registrations, surface };
+}
+
+test("matching green registers submit_report with a signal and emits contract events", async () => {
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "REGRESSION_DEMONSTRATED",
+    reproSha256,
+  }));
+
+  const written = await surface.definitions.write_repro.execute({ code: "green repro" });
+  const verdict = await surface.definitions.run_repro.execute({});
+
+  assert.equal(registrations.length, 5);
+  assert.equal(registrations[4].definition, surface.definitions.submit_report);
+  assert.equal(registrations[4].options.signal instanceof AbortSignal, true);
+  assert.equal(registrations[4].options.signal.aborted, false);
+  assert.deepEqual(events[0], {
+    type: "draft",
+    detail: { reproSha256: written.reproSha256, length: 11 },
+  });
+  assert.deepEqual(events[1], { type: "run", detail: { verdict } });
+  assert.equal(events[2].type, "surface");
+  assert.deepEqual(
+    { ...events[2].detail, at: 0 },
+    {
+      change: "registered",
+      tool: "submit_report",
+      reason: "differential green",
+      at: 0,
+    },
+  );
+});
+
+test("editing revokes submit_report and a later green run registers a fresh signal", async () => {
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "REGRESSION_DEMONSTRATED",
+    reproSha256,
+  }));
+  await surface.definitions.write_repro.execute({ code: "first" });
+  await surface.definitions.run_repro.execute({});
+  const firstSignal = registrations[4].options.signal;
+
+  await surface.definitions.write_repro.execute({ code: "second" });
+
+  assert.equal(firstSignal.aborted, true);
+  const revoked = events.find(
+    ({ type, detail }) => type === "surface" && detail.change === "revoked",
+  );
+  assert.deepEqual(
+    { ...revoked.detail, at: 0 },
+    {
+      change: "revoked",
+      tool: "submit_report",
+      reason: "repro edited",
+      at: 0,
+    },
+  );
+
+  await surface.definitions.run_repro.execute({});
+
+  assert.equal(registrations.length, 6);
+  assert.notEqual(registrations[5].options.signal, firstSignal);
+  assert.equal(registrations[5].options.signal.aborted, false);
+});
+
+test("non-green runs emit run events without registering submit_report", async () => {
+  const { events, registrations, surface } = setupSurface(() => ({
+    green: false,
+    reason: "FAIL_BOTH",
+    reproSha256: "f".repeat(64),
+  }));
+  await surface.definitions.write_repro.execute({ code: "not green" });
+
+  const verdict = await surface.definitions.run_repro.execute({});
+
+  assert.equal(registrations.length, 4);
+  assert.deepEqual(events.at(-1), { type: "run", detail: { verdict } });
 });
