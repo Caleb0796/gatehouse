@@ -3,11 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gatehouse S4 environment banner</title>
+<title>Gatehouse S4 judge experience</title>
 <link rel="stylesheet" href="/src/ui/base.css">
+<style>
+body { display: grid; gap: 1rem; margin: 1.5rem auto; max-width: 72rem; padding: 0 1rem; }
+.demo-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.demo-controls button { cursor: pointer; padding: 0.45rem 0.7rem; }
+</style>
 </head>
 <body>
 <header id="env-banner"></header>
+<main>
+<h1>S4 timeline mock</h1>
+<div class="demo-controls" id="timeline-controls"></div>
+<aside id="timeline"></aside>
+</main>
 <script type="module" src="/dev/s4.js"></script>
 </body>
 </html>
