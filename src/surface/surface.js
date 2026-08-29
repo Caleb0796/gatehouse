@@ -105,6 +105,9 @@ export function createToolDefinitions({
           goodVersion: target.goodVersion,
           badSha256: target.badSha256,
           goodSha256: target.goodSha256,
+          globalName: target.globalName,
+          summary: target.summary,
+          issueUrl: target.issueUrl ?? null,
           executionModel: EXECUTION_MODEL,
         };
       },
