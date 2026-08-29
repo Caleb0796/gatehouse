@@ -1,0 +1,165 @@
+import { bus as sharedBus } from "../shared/bus.js";
+import { initAdopt } from "./adopt.js";
+import { initReplay } from "./replay.js";
+
+export const INBOX_STORAGE_KEY = "gatehouse.inbox.v1";
+
+function verdictFor(artifact) {
+  const bad = artifact.runs.find(run => run.version === "bad")?.verdict ?? "missing";
+  const good = artifact.runs.find(run => run.version === "good")?.verdict ?? "missing";
+  if (bad === "fail" && good === "pass") {
+    return { label: "REGRESSION_DEMONSTRATED", tone: "green" };
+  }
+  return { label: `${bad.toUpperCase()} → ${good.toUpperCase()}`, tone: "neutral" };
+}
+
+export function loadInbox(storage = localStorage) {
+  try {
+    const stored = JSON.parse(storage.getItem(INBOX_STORAGE_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+}
+
+export function storeArtifact(artifact, storage = localStorage) {
+  const artifacts = loadInbox(storage);
+  artifacts.push(artifact);
+  storage.setItem(INBOX_STORAGE_KEY, JSON.stringify(artifacts));
+  return artifacts;
+}
+
+export function createInboxView(artifacts) {
+  return [...artifacts].reverse().map(artifact => ({
+    artifact,
+    title: `${artifact.library} · ${artifact.targetId}`,
+    signedAt: artifact.signedAt,
+    verdict: verdictFor(artifact),
+  }));
+}
+
+function appendField(document, parent, label, value) {
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  detail.textContent = value === null ? "(none)" : String(value);
+  parent.append(term, detail);
+}
+
+function renderDetail(document, root, entry, deps) {
+  const heading = document.createElement("h3");
+  const fields = document.createElement("dl");
+  const reproHeading = document.createElement("h4");
+  const repro = document.createElement("pre");
+  const runsHeading = document.createElement("h4");
+
+  heading.textContent = entry.title;
+  appendField(document, fields, "Schema version", entry.artifact.v);
+  appendField(document, fields, "Signed at", entry.artifact.signedAt);
+  appendField(document, fields, "Target kind", entry.artifact.targetKind);
+  appendField(document, fields, "Issue URL", entry.artifact.issueUrl);
+  appendField(document, fields, "Reported-bad version", entry.artifact.badVersion);
+  appendField(document, fields, "Reported-bad SHA-256", entry.artifact.badSha256);
+  appendField(document, fields, "Last-good version", entry.artifact.goodVersion);
+  appendField(document, fields, "Last-good SHA-256", entry.artifact.goodSha256);
+  appendField(document, fields, "Repro SHA-256", entry.artifact.reproSha256);
+  appendField(document, fields, "User agent", entry.artifact.ua);
+  reproHeading.textContent = "Reproduction";
+  repro.textContent = entry.artifact.repro;
+  runsHeading.textContent = "Recorded runs";
+  root.replaceChildren(heading, fields, reproHeading, repro, runsHeading);
+
+  for (const run of entry.artifact.runs) {
+    const runFields = document.createElement("dl");
+    appendField(document, runFields, "Version", run.version);
+    appendField(document, runFields, "Verdict", run.verdict);
+    appendField(document, runFields, "Bundle SHA-256", run.bundleSha256);
+    appendField(document, runFields, "Duration (ms)", run.durationMs);
+    appendField(document, runFields, "Logs", run.logs.length ? run.logs.join("\n") : "(none)");
+    root.append(runFields);
+  }
+
+  const timelineHeading = document.createElement("h4");
+  timelineHeading.textContent = "Timeline";
+  root.append(timelineHeading);
+  for (const event of entry.artifact.timeline) {
+    const eventFields = document.createElement("dl");
+    appendField(document, eventFields, "At", event.at);
+    appendField(document, eventFields, "Event", event.event);
+    appendField(document, eventFields, "Detail", event.detail);
+    root.append(eventFields);
+  }
+
+  const replay = document.createElement("section");
+  replay.className = "inbox-replay";
+  root.append(replay);
+  initReplay(replay, entry.artifact, { runDifferential: deps.runDifferential });
+
+  const adopt = document.createElement("section");
+  adopt.className = "inbox-adopt";
+  root.append(adopt);
+  initAdopt(adopt, entry.artifact, deps);
+}
+
+function render(root, entries, selectedIndex, select, deps) {
+  const document = root.ownerDocument;
+  const heading = document.createElement("h2");
+  const list = document.createElement("ol");
+  const detail = document.createElement("article");
+  heading.textContent = "Signed report inbox";
+  list.className = "inbox-list";
+  detail.className = "inbox-detail";
+  root.replaceChildren(heading, list, detail);
+
+  if (!entries.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "No signed reports yet.";
+    detail.append(empty);
+    return;
+  }
+
+  entries.forEach((entry, index) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    const title = document.createElement("span");
+    const verdict = document.createElement("span");
+    const signedAt = document.createElement("time");
+    button.type = "button";
+    button.className = index === selectedIndex ? "selected" : "";
+    button.addEventListener("click", () => select(index));
+    title.textContent = entry.title;
+    verdict.className = `verdict-badge ${entry.verdict.tone}`;
+    verdict.textContent = entry.verdict.label;
+    signedAt.textContent = entry.signedAt;
+    button.append(title, verdict, signedAt);
+    item.append(button);
+    list.append(item);
+  });
+
+  renderDetail(document, detail, entries[selectedIndex] ?? entries[0], deps);
+}
+
+export function init(rootEl, deps = {}) {
+  const storage = deps.storage ?? localStorage;
+  const eventBus = deps.bus ?? sharedBus;
+  let artifacts = loadInbox(storage);
+  let selectedIndex = 0;
+
+  const draw = () => {
+    const entries = createInboxView(artifacts);
+    rootEl.hidden = entries.length === 0;
+    render(rootEl, entries, selectedIndex, index => {
+      selectedIndex = index;
+      draw();
+    }, deps);
+  };
+
+  const unsubscribe = eventBus.on("signed", ({ artifact }) => {
+    artifacts = storeArtifact(artifact, storage);
+    selectedIndex = 0;
+    draw();
+  });
+
+  draw();
+  return unsubscribe;
+}
