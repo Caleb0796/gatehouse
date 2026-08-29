@@ -4,9 +4,9 @@ import test from "node:test";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
-test("SYNC-0 page keeps scripts external under production CSP", async () => {
+test("S1 page keeps scripts external under production CSP", async () => {
   const page = await read("../dev/s1.html");
-  assert.match(page, /<script type="module" src="\/src\/sandbox\/spike\.js"><\/script>/);
+  assert.match(page, /<script type="module" src="\/src\/sandbox\/s1-dev\.js"><\/script>/);
   assert.doesNotMatch(page, /<script(?:\s[^>]*)?>\s*[^<\s]/);
 });
 

@@ -1,4 +1,5 @@
 import { sha256Hex } from "../shared/hash.js";
+import { judge } from "./differential.js";
 import { createRunnerSrcdoc } from "./srcdoc.js";
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -192,4 +193,42 @@ export function createRunner() {
       iframe.remove();
     },
   };
+}
+
+export async function runDifferential(code, { targetId, timeoutMs = 2_000 } = {}) {
+  if (typeof code !== "string") throw new TypeError("Repro code must be a string");
+
+  const { manifest, bundles } = await loadTarget(targetId);
+  const runner = createRunner();
+
+  try {
+    await runner.load([bundles.bad, bundles.good]);
+    const [badRun, goodRun] = await Promise.all([
+      runner.run({
+        bundleSha: bundles.bad.sha256,
+        globalName: manifest.globalName,
+        code,
+        timeoutMs,
+      }),
+      runner.run({
+        bundleSha: bundles.good.sha256,
+        globalName: manifest.globalName,
+        code,
+        timeoutMs,
+      }),
+    ]);
+    const verdict = judge(badRun, goodRun);
+
+    return {
+      ...verdict,
+      runs: [
+        { version: "bad", ...badRun, bundleSha256: bundles.bad.sha256 },
+        { version: "good", ...goodRun, bundleSha256: bundles.good.sha256 },
+      ],
+      reproSha256: await sha256Hex(code),
+      targetId,
+    };
+  } finally {
+    runner.destroy();
+  }
 }

@@ -3,14 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RUNNING · Gatehouse SYNC-0 spike</title>
+  <title>Gatehouse S1 differential runner</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    body { margin: 0; background: #111827; color: #e5e7eb; }
+    main { width: min(960px, calc(100% - 2rem)); margin: 2rem auto; }
+    textarea, pre { box-sizing: border-box; width: 100%; padding: 1rem; border: 1px solid #4b5563; border-radius: .5rem; background: #030712; color: inherit; }
+    textarea { min-height: 12rem; resize: vertical; }
+    button { margin: 1rem 0; padding: .65rem 1rem; border: 0; border-radius: .4rem; font: inherit; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .6; }
+    .runs { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+    .green { color: #86efac; }
+    .red { color: #fca5a5; }
+  </style>
 </head>
 <body>
   <main>
-    <h1>Gatehouse SYNC-0 spike</h1>
-    <p id="status">Running four CSP sandbox checks…</p>
-    <ol id="results"></ol>
+    <h1>Gatehouse S1 differential runner</h1>
+    <p id="target">Loading target…</p>
+    <form id="repro-form">
+      <label for="repro">Reproduction code</label>
+      <textarea id="repro" name="repro" maxlength="8192" spellcheck="false"></textarea>
+      <button id="run" type="submit" disabled>Run against both versions</button>
+    </form>
+    <p id="status">Loading verified bundles…</p>
+    <h2 id="verdict">Verdict: not run</h2>
+    <div class="runs">
+      <section>
+        <h2>Bad RunResult</h2>
+        <pre id="bad-run">Not run</pre>
+      </section>
+      <section>
+        <h2>Good RunResult</h2>
+        <pre id="good-run">Not run</pre>
+      </section>
+    </div>
   </main>
-  <script type="module" src="/src/sandbox/spike.js"></script>
+  <script type="module" src="/src/sandbox/s1-dev.js"></script>
 </body>
 </html>
