@@ -7,16 +7,31 @@
 <link rel="stylesheet" href="/src/ui/base.css">
 <style>
 body { display: grid; gap: 1rem; margin: 1.5rem auto; max-width: 72rem; padding: 0 1rem; }
+.demo-grid { display: grid; gap: 1rem; grid-template-columns: minmax(20rem, 1fr) minmax(20rem, 1fr); }
 .demo-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .demo-controls button { cursor: pointer; padding: 0.45rem 0.7rem; }
+.simagent { background: #f3f0ff; border: 2px solid #7557d3; display: grid; gap: 0.75rem; padding: 1rem; }
+.simagent h2, .simagent__status { margin: 0; }
+.simagent__mode { padding: 0.5rem; }
+.simagent__mode--simulated { background: #fff3c4; color: #674d00; }
+.simagent__start { cursor: pointer; font-weight: 800; padding: 0.8rem; }
+.simagent__steps { margin: 0; padding-left: 1.5rem; }
+.simagent__step--complete { color: #126b37; }
+.simagent__step--error { color: #8d1d16; }
+@media (max-width: 50rem) { .demo-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <header id="env-banner"></header>
 <main>
-<h1>S4 timeline mock</h1>
+<h1>S4 judge experience mock</h1>
+<div class="demo-grid">
+<section id="simagent"></section>
+<div>
 <div class="demo-controls" id="timeline-controls"></div>
 <aside id="timeline"></aside>
+</div>
+</div>
 </main>
 <script type="module" src="/dev/s4.js"></script>
 </body>
