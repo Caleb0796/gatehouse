@@ -1,0 +1,26 @@
+{
+  "green": false,
+  "reason": "FAIL_BOTH",
+  "runs": [
+    {
+      "version": "bad",
+      "verdict": "fail",
+      "logs": [
+        "ReproAssertionError: forced"
+      ],
+      "durationMs": 12,
+      "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "version": "good",
+      "verdict": "fail",
+      "logs": [
+        "ReproAssertionError: forced"
+      ],
+      "durationMs": 10,
+      "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "reproSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "targetId": "demo-lib-001"
+}

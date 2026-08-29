@@ -1,0 +1,24 @@
+{
+  "green": true,
+  "reason": "REGRESSION_DEMONSTRATED",
+  "runs": [
+    {
+      "version": "bad",
+      "verdict": "fail",
+      "logs": [
+        "ReproAssertionError: add(2,2) should be 4"
+      ],
+      "durationMs": 12,
+      "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "version": "good",
+      "verdict": "pass",
+      "logs": [],
+      "durationMs": 10,
+      "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "reproSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "targetId": "demo-lib-001"
+}

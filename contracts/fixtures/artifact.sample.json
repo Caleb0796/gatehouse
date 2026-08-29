@@ -1,0 +1,60 @@
+{
+  "v": 1,
+  "targetId": "demo-lib-001",
+  "library": "gatehouse-demo-lib",
+  "badVersion": "1.1.0",
+  "goodVersion": "1.0.0",
+  "badSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "goodSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "repro": "const r = demoLib.add(2, 2);\nassert(r === 4, \"add(2,2) should be 4, got \" + r);",
+  "reproSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "runs": [
+    {
+      "version": "bad",
+      "verdict": "fail",
+      "logs": [
+        "ReproAssertionError: add(2,2) should be 4, got 5"
+      ],
+      "durationMs": 12,
+      "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "version": "good",
+      "verdict": "pass",
+      "logs": [],
+      "durationMs": 10,
+      "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "timeline": [
+    {
+      "at": "2026-08-29T10:00:00Z",
+      "event": "run",
+      "detail": "FAIL_BOTH"
+    },
+    {
+      "at": "2026-08-29T10:02:00Z",
+      "event": "run",
+      "detail": "PASS_BOTH"
+    },
+    {
+      "at": "2026-08-29T10:05:00Z",
+      "event": "green",
+      "detail": "REGRESSION_DEMONSTRATED"
+    },
+    {
+      "at": "2026-08-29T10:06:00Z",
+      "event": "staged",
+      "detail": ""
+    },
+    {
+      "at": "2026-08-29T10:07:00Z",
+      "event": "signed",
+      "detail": ""
+    }
+  ],
+  "signedAt": "2026-08-29T10:07:00Z",
+  "ua": "fixture",
+  "issueUrl": null,
+  "targetKind": "seed"
+}

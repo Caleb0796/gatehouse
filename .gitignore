@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+TASKS.md
+PROMPT.md
+BLOCKED.md
+SPIKE-RESULT.md

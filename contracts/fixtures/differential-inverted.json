@@ -1,0 +1,24 @@
+{
+  "green": false,
+  "reason": "INVERTED",
+  "runs": [
+    {
+      "version": "bad",
+      "verdict": "pass",
+      "logs": [],
+      "durationMs": 12,
+      "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "version": "good",
+      "verdict": "fail",
+      "logs": [
+        "ReproAssertionError: version-sniffed"
+      ],
+      "durationMs": 10,
+      "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "reproSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "targetId": "demo-lib-001"
+}
