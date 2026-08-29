@@ -123,6 +123,72 @@ export async function launchChromeHarness({
       { name, input },
     );
 
+    const installArtifactCapture = () => page.evaluate(async () => {
+      const { bus } = await import("/src/shared/bus.js");
+      window.__gatehouseEvalSignedArtifact = null;
+      window.__gatehouseEvalUnsubscribe?.();
+      window.__gatehouseEvalUnsubscribe = bus.on("signed", ({ artifact }) => {
+        window.__gatehouseEvalSignedArtifact = artifact;
+      });
+    });
+
+    const navigate = async (nextUrl = targetUrl) => {
+      await page.goto(assertHttpUrl(nextUrl), { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(
+        () => typeof window.__gatehouseTestHook?.executeTool === "function",
+      );
+      await installArtifactCapture();
+    };
+
+    const interceptBundle = async (version, mutation) => {
+      if (version !== "bad" && version !== "good") {
+        throw new Error(`Unknown bundle version: ${version}`);
+      }
+      if (mutation !== "append-byte") {
+        throw new Error(`Unknown bundle mutation: ${mutation}`);
+      }
+      const matcher = new RegExp(`/targets/[^/]+/${version}\\.js(?:\\?.*)?$`);
+      await page.route(matcher, async (route) => {
+        const response = await route.fetch();
+        const body = await response.body();
+        await route.fulfill({ response, body: Buffer.concat([body, Buffer.from(" ")]) });
+      }, { times: 1 });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(
+        () => typeof window.__gatehouseTestHook?.executeTool === "function",
+      );
+      await installArtifactCapture();
+    };
+
+    const readSignedArtifact = () => page.evaluate(
+      () => window.__gatehouseEvalSignedArtifact,
+    );
+
+    const encodeReceipt = (artifact) => page.evaluate(async (value) => {
+      const receipt = await import("/src/inbox/receipt.js");
+      return receipt.encodeReceipt(value);
+    }, artifact);
+
+    const decodeReceipt = (receipt) => page.evaluate(async (value) => {
+      const codec = await import("/src/inbox/receipt.js");
+      if (typeof value?.url !== "string") return { error: "receipt has no URL" };
+      const hash = value.url.slice(value.url.indexOf("#"));
+      return codec.decodeReceipt(hash);
+    }, receipt);
+
+    const click = async (selector) => {
+      const locator = page.locator(selector);
+      if (await locator.count() > 0) {
+        await locator.click();
+        return;
+      }
+      if (selector === "#sign-panel button") {
+        await page.locator("#sign").click();
+        return;
+      }
+      throw new Error(`Element not found: ${selector}`);
+    };
+
     return {
       browser,
       chromeVersion: version.product,
@@ -137,8 +203,14 @@ export async function launchChromeHarness({
         executeTool: executeWebMcpTool,
         getTools: getWebMcpTools,
       },
+      click,
+      decodeReceipt,
+      encodeReceipt,
+      interceptBundle,
+      navigate,
       probePage: () => page.evaluate(() => ({ alive: true, at: performance.now() })),
-      reset: () => page.reload({ waitUntil: "domcontentloaded" }),
+      readSignedArtifact,
+      reset: () => navigate(targetUrl),
       close: () => browser.close(),
     };
   } catch (error) {
