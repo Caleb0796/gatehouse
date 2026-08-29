@@ -1,0 +1,18 @@
+{
+  "id": "qs-500",
+  "library": "qs",
+  "kind": "real",
+  "badVersion": "6.12.0",
+  "goodVersion": "6.12.1",
+  "badSha256": "c2e89bc33086e252327ebafd36efe2d8eb5e330545dea7dee17023205e74604e",
+  "goodSha256": "4354e60ae8d630b9b3f58e5f62c7effd6d77988c2c18958703d7fb314c436376",
+  "globalName": "Qs",
+  "issueUrl": "https://github.com/ljharb/qs/issues/500",
+  "licenseFile": "LICENSE.qs.txt",
+  "summary": "qs 6.12.0 unintentionally enabled decodeDotInKeys by default, changing encoded OAuth-style parameter names; 6.12.1 restores the prior default.",
+  "demoRepros": {
+    "broken": "assert(false, \"I have not isolated the regression yet\");",
+    "weak": "const parsed = Qs.parse(\"a=b\");\nassert(parsed.a === \"b\", \"basic query parsing should work\");",
+    "real": "const parsed = Qs.parse(\"a%252Eb=c\");\nassert(Object.keys(parsed).length === 1 && parsed[\"a%2Eb\"] === \"c\", \"encoded dots must stay encoded by default\");"
+  }
+}
