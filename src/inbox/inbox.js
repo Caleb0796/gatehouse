@@ -1,4 +1,5 @@
 import { bus as sharedBus } from "../shared/bus.js";
+import { initReplay } from "./replay.js";
 
 export const INBOX_STORAGE_KEY = "gatehouse.inbox.v1";
 
@@ -44,7 +45,7 @@ function appendField(document, parent, label, value) {
   parent.append(term, detail);
 }
 
-function renderDetail(document, root, entry) {
+function renderDetail(document, root, entry, deps) {
   const heading = document.createElement("h3");
   const fields = document.createElement("dl");
   const reproHeading = document.createElement("h4");
@@ -87,9 +88,14 @@ function renderDetail(document, root, entry) {
     appendField(document, eventFields, "Detail", event.detail);
     root.append(eventFields);
   }
+
+  const replay = document.createElement("section");
+  replay.className = "inbox-replay";
+  root.append(replay);
+  initReplay(replay, entry.artifact, { runDifferential: deps.runDifferential });
 }
 
-function render(root, entries, selectedIndex, select) {
+function render(root, entries, selectedIndex, select, deps) {
   const document = root.ownerDocument;
   const heading = document.createElement("h2");
   const list = document.createElement("ol");
@@ -124,7 +130,7 @@ function render(root, entries, selectedIndex, select) {
     list.append(item);
   });
 
-  renderDetail(document, detail, entries[selectedIndex] ?? entries[0]);
+  renderDetail(document, detail, entries[selectedIndex] ?? entries[0], deps);
 }
 
 export function init(rootEl, deps = {}) {
@@ -139,7 +145,7 @@ export function init(rootEl, deps = {}) {
     render(rootEl, entries, selectedIndex, index => {
       selectedIndex = index;
       draw();
-    });
+    }, deps);
   };
 
   const unsubscribe = eventBus.on("signed", ({ artifact }) => {
