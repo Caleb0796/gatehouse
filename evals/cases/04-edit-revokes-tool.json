@@ -1,0 +1,22 @@
+{
+  "id": "edit-revokes-tool",
+  "tier": "webmcp",
+  "setup": {
+    "reset": true,
+    "repro": "{{target.demoRepros.real}}"
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "greenRun" },
+    { "op": "getTools", "saveAs": "toolsBeforeEdit" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}\n// edited" } },
+    { "op": "getTools", "saveAs": "toolsAfterEdit" }
+  ],
+  "expect": {
+    "reasonBeforeEdit": "REGRESSION_DEMONSTRATED",
+    "toolCountBeforeEdit": 5,
+    "toolCountAfterEdit": 4,
+    "removedTool": "submit_report",
+    "gateOpen": false
+  }
+}

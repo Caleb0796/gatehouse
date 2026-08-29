@@ -1,0 +1,20 @@
+{
+  "id": "assert-false",
+  "tier": "logic",
+  "setup": {
+    "reset": true
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "assert(false, \"forced\");" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "result" },
+    { "op": "getTools", "saveAs": "tools" }
+  ],
+  "expect": {
+    "reason": "FAIL_BOTH",
+    "badVerdict": "fail",
+    "goodVerdict": "fail",
+    "gateOpen": false,
+    "toolAbsent": "submit_report"
+  },
+  "mustFail": true
+}
