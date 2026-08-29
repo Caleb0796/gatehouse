@@ -1,0 +1,20 @@
+{
+  "id": "empty-repro",
+  "tier": "logic",
+  "setup": {
+    "reset": true
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "// intentionally empty repro" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "result" },
+    { "op": "getTools", "saveAs": "tools" }
+  ],
+  "expect": {
+    "reason": "PASS_BOTH",
+    "badVerdict": "pass",
+    "goodVerdict": "pass",
+    "gateOpen": false,
+    "toolAbsent": "submit_report"
+  },
+  "mustFail": true
+}

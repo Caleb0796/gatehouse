@@ -1,0 +1,28 @@
+{
+  "id": "happy-3-round",
+  "tier": "webmcp",
+  "setup": {
+    "reset": true,
+    "repros": {
+      "broken": "{{target.demoRepros.broken}}",
+      "weak": "{{target.demoRepros.weak}}",
+      "real": "{{target.demoRepros.real}}"
+    }
+  },
+  "actions": [
+    { "op": "getTools", "saveAs": "baselineTools" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repros.broken}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "brokenRun" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repros.weak}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "weakRun" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repros.real}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "realRun" },
+    { "op": "getTools", "saveAs": "openTools" }
+  ],
+  "expect": {
+    "reasons": ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"],
+    "gateOpen": true,
+    "toolPresent": "submit_report",
+    "toolCount": 5
+  }
+}

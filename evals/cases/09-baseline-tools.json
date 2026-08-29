@@ -1,0 +1,20 @@
+{
+  "id": "baseline-tools",
+  "tier": "webmcp",
+  "setup": {
+    "reset": true
+  },
+  "actions": [
+    { "op": "getTools", "saveAs": "tools" }
+  ],
+  "expect": {
+    "toolCount": 4,
+    "toolNames": [
+      "get_target_info",
+      "request_human_review",
+      "run_repro",
+      "write_repro"
+    ],
+    "toolAbsent": "submit_report"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "receipt-round-trip",
+  "tier": "logic",
+  "setup": {
+    "reset": true,
+    "repro": "{{target.demoRepros.real}}"
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "greenRun" },
+    { "op": "executeTool", "name": "submit_report", "input": {}, "saveAs": "staged" },
+    { "op": "click", "selector": "#sign-panel button", "saveAs": "signed" },
+    { "op": "readSignedArtifact", "saveAs": "artifact" },
+    { "op": "encodeReceipt", "artifact": "artifact", "saveAs": "receipt" },
+    { "op": "decodeReceipt", "receipt": "receipt", "saveAs": "decoded" }
+  ],
+  "expect": {
+    "reason": "REGRESSION_DEMONSTRATED",
+    "stagedStatus": "staged_awaiting_human_signature",
+    "artifactHashMatchesDraft": true,
+    "receiptArtifactRoundTrip": true,
+    "reproHashOk": true,
+    "verificationLabel": "repro hash verified ✓"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "bundle-sha-tamper",
+  "tier": "logic",
+  "setup": {
+    "reset": true,
+    "repro": "{{target.demoRepros.real}}"
+  },
+  "actions": [
+    { "op": "interceptBundle", "version": "bad", "mutation": "append-byte" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "result" }
+  ],
+  "expect": {
+    "runRejected": true,
+    "errorCode": "BUNDLE_SHA_MISMATCH",
+    "gateOpen": false,
+    "toolAbsent": "submit_report"
+  },
+  "mustFail": true
+}

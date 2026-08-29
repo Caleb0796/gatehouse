@@ -1,0 +1,21 @@
+{
+  "id": "good-error",
+  "tier": "logic",
+  "setup": {
+    "reset": true,
+    "reproTemplate": "{{target.demoRepros.real}}\nthrow new Error(\"forced good-only error\");"
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{reproTemplate}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "result" },
+    { "op": "getTools", "saveAs": "tools" }
+  ],
+  "expect": {
+    "reason": "GOOD_ERROR",
+    "badVerdict": "fail",
+    "goodVerdict": "error",
+    "gateOpen": false,
+    "toolAbsent": "submit_report"
+  },
+  "mustFail": true
+}

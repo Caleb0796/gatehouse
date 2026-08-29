@@ -1,0 +1,23 @@
+{
+  "id": "stale-submit",
+  "tier": "webmcp",
+  "setup": {
+    "reset": true,
+    "repro": "{{target.demoRepros.real}}"
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "greenRun" },
+    { "op": "getTools", "saveAs": "openTools" },
+    { "op": "captureTool", "from": "openTools", "name": "submit_report", "saveAs": "staleSubmit" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}\n// stale edit" } },
+    { "op": "executeCapturedTool", "tool": "staleSubmit", "input": {}, "saveAs": "submitResult" }
+  ],
+  "expect": {
+    "reasonBeforeEdit": "REGRESSION_DEMONSTRATED",
+    "submitCode": "STALE_REPRO",
+    "gateOpen": false,
+    "toolAbsent": "submit_report"
+  },
+  "mustFail": true
+}
