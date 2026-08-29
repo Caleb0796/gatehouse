@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createGate } from "../src/surface/gate.js";
 import {
+  clampToolOutput,
   createSurface,
   createToolDefinitions,
   registerAlwaysAvailableTools,
@@ -51,6 +52,38 @@ function setup(overrides = {}) {
   });
   return { gate, calls, definitions };
 }
+
+test("clampToolOutput preserves normal serialized output", () => {
+  const output = { green: false, reason: "FAIL_BOTH", logs: ["one"] };
+
+  const clamped = clampToolOutput(output);
+
+  assert.deepEqual(clamped, output);
+  assert.ok(JSON.stringify(clamped).length <= 1500);
+});
+
+test("clampToolOutput removes oldest logs until serialized output fits", () => {
+  const output = {
+    runs: [{ logs: ["old".repeat(300), "middle".repeat(150), "new".repeat(300)] }],
+  };
+
+  const clamped = clampToolOutput(output);
+
+  assert.deepEqual(clamped.runs[0].logs, ["new".repeat(300)]);
+  assert.ok(JSON.stringify(clamped).length <= 1500);
+  assert.equal(output.runs[0].logs.length, 3);
+});
+
+test("clampToolOutput truncates stack and rejects unshrinkable output", () => {
+  const clamped = clampToolOutput({ code: "ERROR", stack: "frame\n".repeat(500) });
+
+  assert.ok(clamped.stack.length < 3000);
+  assert.ok(JSON.stringify(clamped).length <= 1500);
+  assert.throws(
+    () => clampToolOutput({ detail: "x".repeat(1500) }),
+    /exceeds 1500 characters/,
+  );
+});
 
 test("definitions use the frozen names, descriptions, schemas, and annotations", () => {
   const { definitions } = setup();

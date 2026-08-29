@@ -4,6 +4,59 @@ import { createGate } from "./gate.js";
 
 const EXECUTION_MODEL =
   "Repro code runs against each pinned library bundle in an isolated sandbox. An assert(condition, message) helper is provided; a repro demonstrates a bug when an assertion fails on the buggy build and passes on the good one.";
+const MAX_TOOL_OUTPUT_LENGTH = 1500;
+
+function visitObjects(value, visitor) {
+  if (Array.isArray(value)) {
+    return value.some((item) => visitObjects(item, visitor));
+  }
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (visitor(value)) {
+    return true;
+  }
+  return Object.values(value).some((item) => visitObjects(item, visitor));
+}
+
+function removeOldestLog(output) {
+  return visitObjects(output, (value) => {
+    if (!Array.isArray(value.logs) || value.logs.length === 0) {
+      return false;
+    }
+    value.logs.shift();
+    return true;
+  });
+}
+
+function truncateStack(output, excess) {
+  return visitObjects(output, (value) => {
+    if (typeof value.stack !== "string" || value.stack.length === 0) {
+      return false;
+    }
+    value.stack = value.stack.slice(0, Math.max(0, value.stack.length - excess));
+    return true;
+  });
+}
+
+export function clampToolOutput(output) {
+  let serialized = JSON.stringify(output);
+  const clamped = JSON.parse(serialized);
+
+  while (serialized.length > MAX_TOOL_OUTPUT_LENGTH && removeOldestLog(clamped)) {
+    serialized = JSON.stringify(clamped);
+  }
+  while (
+    serialized.length > MAX_TOOL_OUTPUT_LENGTH &&
+    truncateStack(clamped, serialized.length - MAX_TOOL_OUTPUT_LENGTH)
+  ) {
+    serialized = JSON.stringify(clamped);
+  }
+  if (serialized.length > MAX_TOOL_OUTPUT_LENGTH) {
+    throw new Error("Tool output exceeds 1500 characters after clamping.");
+  }
+  return clamped;
+}
 
 function invalid(message) {
   return { code: "INVALID_INPUT", message };
@@ -153,6 +206,14 @@ export function createToolDefinitions({
       },
     },
   };
+
+  for (const definition of Object.values(definitions)) {
+    const execute = definition.execute;
+    definition.execute = (...args) => {
+      const output = execute(...args);
+      return output instanceof Promise ? output.then(clampToolOutput) : clampToolOutput(output);
+    };
+  }
 
   return definitions;
 }
