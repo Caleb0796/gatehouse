@@ -5,6 +5,17 @@ import { createGate } from "./gate.js";
 const EXECUTION_MODEL =
   "Repro code runs against each pinned library bundle in an isolated sandbox. An assert(condition, message) helper is provided; a repro demonstrates a bug when an assertion fails on the buggy build and passes on the good one.";
 const MAX_TOOL_OUTPUT_LENGTH = 1500;
+const ALWAYS_AVAILABLE_TOOLS = [
+  "get_target_info",
+  "write_repro",
+  "run_repro",
+  "request_human_review",
+];
+let currentToolTable = {};
+
+export function getToolTable() {
+  return currentToolTable;
+}
 
 function visitObjects(value, visitor) {
   if (Array.isArray(value)) {
@@ -219,14 +230,34 @@ export function createToolDefinitions({
 }
 
 export function registerAlwaysAvailableTools(modelContext, definitions) {
-  for (const name of [
-    "get_target_info",
-    "write_repro",
-    "run_repro",
-    "request_human_review",
-  ]) {
-    modelContext.registerTool(definitions[name]);
+  for (const name of ALWAYS_AVAILABLE_TOOLS) {
+    modelContext.registerTool(definitions[name].definition ?? definitions[name]);
   }
+}
+
+function installTestHook(windowObject, toolTable, activeTools) {
+  if (
+    windowObject === undefined ||
+    new URLSearchParams(windowObject.location.search).get("test") !== "1"
+  ) {
+    return;
+  }
+
+  windowObject.__gatehouseTestHook = {
+    async getTools() {
+      return [...activeTools].map((name) => {
+        const { execute, ...definition } = toolTable[name].definition;
+        return definition;
+      });
+    },
+    async executeTool(tool, args = {}) {
+      const name = typeof tool === "string" ? tool : tool?.name;
+      if (!activeTools.has(name) || toolTable[name] === undefined) {
+        throw new Error(`Tool is not available: ${String(name)}`);
+      }
+      return toolTable[name].execute(args);
+    },
+  };
 }
 
 export function createSurface({
@@ -236,12 +267,15 @@ export function createSurface({
   requestHumanReview,
   stageReport,
   eventBus = bus,
+  windowObject = typeof window === "undefined" ? undefined : window,
 }) {
   const gate = createGate();
   let submitController = null;
   let definitions;
+  let toolTable;
   let boundVerdict = null;
   let timeline = [];
+  const activeTools = new Set(ALWAYS_AVAILABLE_TOOLS);
 
   const connectedGate = {
     getState: gate.getState,
@@ -253,6 +287,7 @@ export function createSurface({
       if (wasOpen) {
         submitController.abort();
         submitController = null;
+        activeTools.delete("submit_report");
         eventBus.emit("surface", {
           change: "revoked",
           tool: "submit_report",
@@ -276,9 +311,10 @@ export function createSurface({
       if (!wasOpen && state.gateOpen) {
         boundVerdict = verdict;
         submitController = new AbortController();
-        modelContext.registerTool(definitions.submit_report, {
+        modelContext.registerTool(toolTable.submit_report.definition, {
           signal: submitController.signal,
         });
+        activeTools.add("submit_report");
         eventBus.emit("surface", {
           change: "registered",
           tool: "submit_report",
@@ -307,7 +343,15 @@ export function createSurface({
       await stageReport(artifactDraft);
     },
   });
-  registerAlwaysAvailableTools(modelContext, definitions);
+  toolTable = Object.fromEntries(
+    Object.entries(definitions).map(([name, definition]) => [
+      name,
+      { definition, execute: definition.execute },
+    ]),
+  );
+  currentToolTable = toolTable;
+  registerAlwaysAvailableTools(modelContext, toolTable);
+  installTestHook(windowObject, toolTable, activeTools);
 
   return { gate: connectedGate, definitions };
 }

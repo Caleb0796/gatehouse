@@ -5,6 +5,7 @@ import {
   clampToolOutput,
   createSurface,
   createToolDefinitions,
+  getToolTable,
   registerAlwaysAvailableTools,
 } from "../src/surface/surface.js";
 
@@ -214,7 +215,7 @@ test("submit_report stages only a SHA-bound draft", async () => {
   assert.equal(calls.stages[0].boundSha, draftSha);
 });
 
-function setupSurface(verdictForCode) {
+function setupSurface(verdictForCode, windowObject) {
   const registrations = [];
   const events = [];
   const stages = [];
@@ -237,6 +238,7 @@ function setupSurface(verdictForCode) {
         events.push({ type, detail });
       },
     },
+    windowObject,
   });
   return { events, registrations, stages, surface };
 }
@@ -317,6 +319,66 @@ test("non-green runs emit run events without registering submit_report", async (
 
   assert.equal(registrations.length, 4);
   assert.deepEqual(events.at(-1), { type: "run", detail: { verdict } });
+});
+
+test("getToolTable exposes each frozen definition with its shared executor", () => {
+  const { surface } = setupSurface(() => ({
+    green: false,
+    reason: "FAIL_BOTH",
+    reproSha256: "f".repeat(64),
+  }));
+
+  const table = getToolTable();
+
+  assert.deepEqual(Object.keys(table), Object.keys(descriptions));
+  for (const name of Object.keys(descriptions)) {
+    assert.equal(table[name].definition, surface.definitions[name]);
+    assert.equal(table[name].execute, surface.definitions[name].execute);
+  }
+});
+
+test("test hook mirrors dynamic availability and executes the shared table", async () => {
+  const windowObject = { location: { search: "?mock=green&test=1" } };
+  const { surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "REGRESSION_DEMONSTRATED",
+    reproSha256,
+  }), windowObject);
+  const hook = windowObject.__gatehouseTestHook;
+
+  assert.deepEqual(
+    (await hook.getTools()).map(({ name }) => name),
+    ["get_target_info", "write_repro", "run_repro", "request_human_review"],
+  );
+  await hook.executeTool("write_repro", { code: "verified repro" });
+  const runTool = (await hook.getTools()).find(({ name }) => name === "run_repro");
+  await hook.executeTool(runTool, {});
+  const submitTool = (await hook.getTools()).find(({ name }) => name === "submit_report");
+
+  assert.equal(submitTool.name, "submit_report");
+
+  await surface.definitions.write_repro.execute({ code: "edited repro" });
+
+  assert.equal(
+    (await hook.getTools()).some(({ name }) => name === "submit_report"),
+    false,
+  );
+  await assert.rejects(
+    hook.executeTool(submitTool, {}),
+    /Tool is not available: submit_report/,
+  );
+});
+
+test("test hook is absent unless test equals one", () => {
+  const windowObject = { location: { search: "?test=0" } };
+
+  setupSurface(() => ({
+    green: false,
+    reason: "FAIL_BOTH",
+    reproSha256: "f".repeat(64),
+  }), windowObject);
+
+  assert.equal("__gatehouseTestHook" in windowObject, false);
 });
 
 test("submit_report emits and hands off the staged artifact draft", async () => {
