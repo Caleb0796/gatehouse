@@ -1,0 +1,246 @@
+name: Verify Gatehouse receipt
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gatehouse-verify-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.event.issue.pull_request == null &&
+      contains(github.event.comment.body, '/receipt.html#a=')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COMMENT_BODY: ${{ github.event.comment.body }}
+      GATEHOUSE_ORIGIN: ${{ vars.GATEHOUSE_ORIGIN }}
+    steps:
+      - name: Install Playwright client
+        run: |
+          test -n "$GATEHOUSE_ORIGIN" || {
+            echo "Set the GATEHOUSE_ORIGIN repository variable to the deployed Gatehouse URL." >&2
+            exit 1
+          }
+          mkdir -p "$RUNNER_TEMP/gatehouse-verify"
+          npm install \
+            --prefix "$RUNNER_TEMP/gatehouse-verify" \
+            --no-save \
+            --no-package-lock \
+            --ignore-scripts \
+            playwright@1.62.1
+
+      - name: Replay receipt against pinned builds
+        working-directory: ${{ runner.temp }}/gatehouse-verify
+        run: |
+          node --input-type=module <<'VERIFY_SCRIPT'
+          import assert from "node:assert/strict";
+          import { createHash } from "node:crypto";
+          import { chromium } from "playwright";
+
+          const MAX_COMPRESSED_BYTES = 64 * 1024;
+          const MAX_DECOMPRESSED_BYTES = 1024 * 1024;
+          const VERIFIED_LABEL = "repro hash verified ✓";
+          const HEX_64 = /^[a-f0-9]{64}$/;
+
+          function requireRecord(value, name) {
+            assert(value && typeof value === "object" && !Array.isArray(value), `${name} must be an object`);
+          }
+
+          function requireString(value, name) {
+            assert(typeof value === "string" && value.length > 0, `${name} must be a non-empty string`);
+          }
+
+          function requireSha(value, name) {
+            assert(typeof value === "string" && HEX_64.test(value), `${name} must be a lowercase SHA-256`);
+          }
+
+          function validateArtifact(artifact) {
+            requireRecord(artifact, "artifact");
+            assert.equal(artifact.v, 1, "artifact.v must be 1");
+            for (const field of ["targetId", "library", "badVersion", "goodVersion", "repro", "signedAt", "ua"]) {
+              requireString(artifact[field], `artifact.${field}`);
+            }
+            requireSha(artifact.badSha256, "artifact.badSha256");
+            requireSha(artifact.goodSha256, "artifact.goodSha256");
+            requireSha(artifact.reproSha256, "artifact.reproSha256");
+            assert(new TextEncoder().encode(artifact.repro).byteLength <= 8192, "artifact.repro exceeds 8KB");
+            assert(Array.isArray(artifact.runs) && artifact.runs.length === 2, "artifact.runs must contain two runs");
+            assert(Array.isArray(artifact.timeline), "artifact.timeline must be an array");
+            assert(artifact.issueUrl === null || typeof artifact.issueUrl === "string", "artifact.issueUrl is invalid");
+            assert(["real", "seed"].includes(artifact.targetKind), "artifact.targetKind is invalid");
+          }
+
+          function runsByVersion(runs, name) {
+            assert(Array.isArray(runs) && runs.length === 2, `${name} must contain two runs`);
+            const indexed = Object.fromEntries(runs.map((run) => {
+              requireRecord(run, `${name} run`);
+              assert(["bad", "good"].includes(run.version), `${name} has an invalid run version`);
+              assert(["pass", "fail", "error", "timeout"].includes(run.verdict), `${name} has an invalid verdict`);
+              requireSha(run.bundleSha256, `${name}.${run.version}.bundleSha256`);
+              return [run.version, run];
+            }));
+            assert(indexed.bad && indexed.good, `${name} must have bad and good runs`);
+            return indexed;
+          }
+
+          function parseToolValue(value) {
+            if (typeof value === "string") {
+              try {
+                return parseToolValue(JSON.parse(value));
+              } catch {
+                return value;
+              }
+            }
+            if (value?.structuredContent) return parseToolValue(value.structuredContent);
+            if (Array.isArray(value?.content)) {
+              const text = value.content.find((item) => typeof item?.text === "string")?.text;
+              if (text) return parseToolValue(text);
+            }
+            return value;
+          }
+
+          const configuredBase = new URL(process.env.GATEHOUSE_ORIGIN);
+          assert(["https:", "http:"].includes(configuredBase.protocol), "GATEHOUSE_ORIGIN must use HTTP(S)");
+          assert(!configuredBase.username && !configuredBase.password, "GATEHOUSE_ORIGIN must not contain credentials");
+          assert(!configuredBase.search && !configuredBase.hash, "GATEHOUSE_ORIGIN must not contain a query or fragment");
+          if (!configuredBase.pathname.endsWith("/")) configuredBase.pathname += "/";
+
+          const receiptPrefix = new URL("receipt.html#a=", configuredBase).href;
+          const receiptOffset = process.env.COMMENT_BODY.indexOf(receiptPrefix);
+          assert(receiptOffset >= 0, `comment must contain a receipt from ${configuredBase.origin}`);
+          const encoded = process.env.COMMENT_BODY
+            .slice(receiptOffset + receiptPrefix.length)
+            .match(/^[A-Za-z0-9_-]+/)?.[0];
+          assert(encoded, "receipt fragment is missing or malformed");
+          const receiptUrl = new URL(`receipt.html#a=${encoded}`, configuredBase);
+
+          const browser = await chromium.launch({
+            channel: "chrome",
+            headless: true,
+            args: ["--enable-features=WebMCP"],
+          });
+
+          try {
+            const page = await browser.newPage();
+            await page.goto(receiptUrl.href, { waitUntil: "domcontentloaded" });
+            await page.waitForFunction(
+              (label) => document.body?.textContent?.includes(label),
+              VERIFIED_LABEL,
+              { timeout: 15_000 },
+            );
+
+            const artifact = await page.evaluate(async ({ maxCompressed, maxDecompressed }) => {
+              const encodedPayload = location.hash.match(/^#a=([A-Za-z0-9_-]+)$/)?.[1];
+              if (!encodedPayload) throw new Error("receipt fragment is malformed");
+              const padded = encodedPayload.replace(/-/g, "+").replace(/_/g, "/")
+                .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+              const compressed = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+              if (compressed.byteLength > maxCompressed) throw new Error("receipt payload exceeds 64KB");
+
+              const reader = new Blob([compressed]).stream()
+                .pipeThrough(new DecompressionStream("deflate-raw"))
+                .getReader();
+              const chunks = [];
+              let size = 0;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                size += value.byteLength;
+                if (size > maxDecompressed) {
+                  await reader.cancel();
+                  throw new Error("decompressed receipt exceeds 1MB");
+                }
+                chunks.push(value);
+              }
+              const bytes = new Uint8Array(size);
+              let offset = 0;
+              for (const chunk of chunks) {
+                bytes.set(chunk, offset);
+                offset += chunk.byteLength;
+              }
+              return JSON.parse(new TextDecoder().decode(bytes));
+            }, {
+              maxCompressed: MAX_COMPRESSED_BYTES,
+              maxDecompressed: MAX_DECOMPRESSED_BYTES,
+            });
+
+            validateArtifact(artifact);
+            const reproSha256 = createHash("sha256").update(artifact.repro).digest("hex");
+            assert.equal(reproSha256, artifact.reproSha256, "receipt repro hash does not match its code");
+
+            const claimedRuns = runsByVersion(artifact.runs, "artifact.runs");
+            assert.equal(claimedRuns.bad.verdict, "fail", "receipt is not green on the bad build");
+            assert.equal(claimedRuns.good.verdict, "pass", "receipt is not green on the good build");
+            assert.equal(claimedRuns.bad.bundleSha256, artifact.badSha256, "receipt bad bundle hash is inconsistent");
+            assert.equal(claimedRuns.good.bundleSha256, artifact.goodSha256, "receipt good bundle hash is inconsistent");
+
+            const replayUrl = new URL(configuredBase);
+            replayUrl.searchParams.set("test", "1");
+            await page.goto(replayUrl.href, { waitUntil: "domcontentloaded" });
+            await page.waitForFunction(
+              () => typeof window.__gatehouseTestHook?.executeTool === "function",
+              null,
+              { timeout: 15_000 },
+            );
+
+            const replayValue = await page.evaluate(async (repro) => {
+              const hook = window.__gatehouseTestHook;
+              await hook.executeTool("write_repro", { code: repro });
+              return hook.executeTool("run_repro", {});
+            }, artifact.repro);
+            const parsedReplay = parseToolValue(replayValue);
+            const replay = parsedReplay?.differential ?? parsedReplay?.result ?? parsedReplay;
+
+            requireRecord(replay, "replay result");
+            assert.equal(replay.green, true, "headless replay did not demonstrate a regression");
+            assert.equal(replay.reason, "REGRESSION_DEMONSTRATED", "headless replay reason changed");
+            assert.equal(replay.targetId, artifact.targetId, "headless replay used a different target");
+            assert.equal(replay.reproSha256, artifact.reproSha256, "headless replay used different repro code");
+
+            const replayRuns = runsByVersion(replay.runs, "replay.runs");
+            for (const version of ["bad", "good"]) {
+              assert.equal(replayRuns[version].verdict, claimedRuns[version].verdict, `${version} verdict changed`);
+              assert.equal(
+                replayRuns[version].bundleSha256,
+                claimedRuns[version].bundleSha256,
+                `${version} bundle hash changed`,
+              );
+            }
+          } finally {
+            await browser.close();
+          }
+          VERIFY_SCRIPT
+
+      - name: Add server-verified label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = "server-verified";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: label,
+                color: "1a7f37",
+                description: "Gatehouse receipt replayed against its pinned builds",
+              });
+            }
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: context.issue.number,
+              labels: [label],
+            });
