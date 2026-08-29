@@ -1,0 +1,53 @@
+.env-banner {
+  border: 2px solid currentColor;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.env-banner--live {
+  background: #e9f8ee;
+  color: #126b37;
+}
+
+.env-banner--warning {
+  background: #fff3c4;
+  color: #674d00;
+}
+
+.env-banner--danger {
+  background: #ffe9e7;
+  color: #8d1d16;
+}
+
+.env-banner__summary,
+.env-banner__setup {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.env-banner__title {
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+}
+
+.env-banner__facts {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.env-banner__setup-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.env-banner__setup-row code {
+  overflow-wrap: anywhere;
+}
+
+.env-banner__copy {
+  cursor: pointer;
+  padding: 0.35rem 0.6rem;
+}
