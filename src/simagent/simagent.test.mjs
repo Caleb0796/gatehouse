@@ -40,14 +40,14 @@ test("WebMCP path discovers every tool and executes all three rounds", async () 
   assert.equal(result.mode, "live");
   assert.deepEqual(calls.filter(([kind]) => kind === "discover").length, 8);
   assert.deepEqual(calls.filter(([kind]) => kind !== "discover"), [
-    ["get_target_info", {}],
-    ["write_repro", { code: target.demoRepros.broken }],
-    ["run_repro", {}],
-    ["write_repro", { code: target.demoRepros.weak }],
-    ["run_repro", {}],
-    ["write_repro", { code: target.demoRepros.real }],
-    ["run_repro", {}],
-    ["submit_report", {}],
+    ["get_target_info", "{}"],
+    ["write_repro", JSON.stringify({ code: target.demoRepros.broken })],
+    ["run_repro", "{}"],
+    ["write_repro", JSON.stringify({ code: target.demoRepros.weak })],
+    ["run_repro", "{}"],
+    ["write_repro", JSON.stringify({ code: target.demoRepros.real })],
+    ["run_repro", "{}"],
+    ["submit_report", "{}"],
   ]);
   assert.deepEqual(waits, Array(7).fill(800));
 });
