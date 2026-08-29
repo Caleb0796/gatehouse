@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gatehouse S2 dynamic gate</title>
+  </head>
+  <body>
+    <main>
+      <h1>S2 dynamic gate</h1>
+      <nav>
+        Mock:
+        <a href="?mock=green">green</a>
+        <a href="?mock=failboth">fail both</a>
+        <a href="?mock=inverted">inverted</a>
+      </nav>
+      <p id="environment"></p>
+      <aside id="submission-status" aria-live="polite">未提交</aside>
+      <label for="repro">Repro draft</label>
+      <textarea id="repro" rows="8" cols="80">assert(add(2, 2) === 4, "add regression")</textarea>
+      <p>
+        <button id="write" type="button">Write draft</button>
+        <button id="run" type="button">Run mock differential</button>
+        <button id="sign" type="button">Sign &amp; submit</button>
+      </p>
+      <pre id="events"></pre>
+    </main>
+    <script type="module" src="../src/surface/dev.js"></script>
+  </body>
+</html>
