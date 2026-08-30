@@ -3,6 +3,7 @@
   "tier": "logic",
   "setup": {
     "reset": true,
+    "mock": "inverted",
     "reproTemplate": "let __gatehouseSawRegression = false;\ntry {\n  (() => {\n{{target.demoRepros.real}}\n  })();\n} catch (error) {\n  __gatehouseSawRegression = error?.name === \"ReproAssertionError\";\n}\nassert(__gatehouseSawRegression, \"version-sniffed inverse\");"
   },
   "actions": [

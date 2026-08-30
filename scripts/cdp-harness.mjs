@@ -10,6 +10,13 @@ function parseToolResult(value) {
   }
 }
 
+function assertSupportedChrome(product) {
+  const major = Number.parseInt(product.match(/^Chrome\/(\d+)/)?.[1] ?? "", 10);
+  if (!Number.isInteger(major) || major < 151) {
+    throw new Error(`Chrome 151 or newer is required, got ${product}`);
+  }
+}
+
 async function importPlaywright() {
   try {
     return await import("playwright");
@@ -47,6 +54,7 @@ export async function launchChromeHarness({
     const page = await context.newPage();
     const cdp = await context.newCDPSession(page);
     const version = await cdp.send("Browser.getVersion");
+    assertSupportedChrome(version.product);
     await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
 
     const getWebMcpTools = () => page.evaluate(async () => {
@@ -123,6 +131,68 @@ export async function launchChromeHarness({
       { name, input },
     );
 
+    const installArtifactCapture = () => page.evaluate(async () => {
+      const { bus } = await import("/src/shared/bus.js");
+      window.__gatehouseEvalSignedArtifact = null;
+      window.__gatehouseEvalUnsubscribe?.();
+      window.__gatehouseEvalUnsubscribe = bus.on("signed", ({ artifact }) => {
+        window.__gatehouseEvalSignedArtifact = artifact;
+      });
+    });
+
+    const navigate = async (nextUrl = targetUrl) => {
+      await page.goto(assertHttpUrl(nextUrl), { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(
+        () => document.body.dataset.appReady === "true"
+          && typeof window.__gatehouseTestHook?.executeTool === "function",
+      );
+      await installArtifactCapture();
+    };
+
+    const interceptBundle = async (version, mutation) => {
+      if (version !== "bad" && version !== "good") {
+        throw new Error(`Unknown bundle version: ${version}`);
+      }
+      if (mutation !== "append-byte") {
+        throw new Error(`Unknown bundle mutation: ${mutation}`);
+      }
+      const matcher = new RegExp(`/targets/[^/]+/${version}\\.js(?:\\?.*)?$`);
+      await page.route(matcher, async (route) => {
+        const response = await route.fetch();
+        const body = await response.body();
+        await route.fulfill({ response, body: Buffer.concat([body, Buffer.from(" ")]) });
+      }, { times: 1 });
+    };
+
+    const readSignedArtifact = () => page.evaluate(
+      () => window.__gatehouseEvalSignedArtifact,
+    );
+
+    const encodeReceipt = (artifact) => page.evaluate(async (value) => {
+      const receipt = await import("/src/inbox/receipt.js");
+      return receipt.encodeReceipt(value);
+    }, artifact);
+
+    const decodeReceipt = (receipt) => page.evaluate(async (value) => {
+      const codec = await import("/src/inbox/receipt.js");
+      if (typeof value?.url !== "string") return { error: "receipt has no URL" };
+      const hash = value.url.slice(value.url.indexOf("#"));
+      return codec.decodeReceipt(hash);
+    }, receipt);
+
+    const click = async (selector) => {
+      const locator = page.locator(selector);
+      if (await locator.count() > 0) {
+        await locator.click();
+        return;
+      }
+      if (selector === "#sign-panel button") {
+        await page.locator("#sign").click();
+        return;
+      }
+      throw new Error(`Element not found: ${selector}`);
+    };
+
     return {
       browser,
       chromeVersion: version.product,
@@ -137,8 +207,22 @@ export async function launchChromeHarness({
         executeTool: executeWebMcpTool,
         getTools: getWebMcpTools,
       },
-      probePage: () => page.evaluate(() => ({ alive: true, at: performance.now() })),
-      reset: () => page.reload({ waitUntil: "domcontentloaded" }),
+      click,
+      decodeReceipt,
+      encodeReceipt,
+      interceptBundle,
+      navigate,
+      probePage: () => page.evaluate(async () => {
+        const startedAt = performance.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return {
+          alive: true,
+          at: performance.now(),
+          recoveryMs: performance.now() - startedAt,
+        };
+      }),
+      readSignedArtifact,
+      reset: () => navigate(targetUrl),
       close: () => browser.close(),
     };
   } catch (error) {

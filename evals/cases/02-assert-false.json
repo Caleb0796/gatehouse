@@ -2,7 +2,8 @@
   "id": "assert-false",
   "tier": "logic",
   "setup": {
-    "reset": true
+    "reset": true,
+    "mock": "failboth"
   },
   "actions": [
     { "op": "executeTool", "name": "write_repro", "input": { "code": "assert(false, \"forced\");" } },

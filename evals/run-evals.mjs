@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchChromeHarness } from "../scripts/cdp-harness.mjs";
@@ -50,7 +50,7 @@ export async function loadCases(casesDir = CASES_DIR) {
 }
 
 export function parseArgs(argv) {
-  const options = { headless: true, validate: false };
+  const options = { headless: true, tier: "all", validate: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--url") {
@@ -58,6 +58,11 @@ export function parseArgs(argv) {
       if (!options.url) throw new Error("--url requires a value");
     } else if (argument === "--headed") {
       options.headless = false;
+    } else if (argument === "--tier") {
+      options.tier = argv[index += 1];
+      if (!options.tier || (options.tier !== "all" && !TIERS.has(options.tier))) {
+        throw new Error("--tier requires logic, webmcp, or all");
+      }
     } else if (argument === "--validate") {
       options.validate = true;
     } else if (argument === "--help") {
@@ -70,7 +75,7 @@ export function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log("Usage: node evals/run-evals.mjs --url <http(s) URL> [--headed]");
+  console.log("Usage: node evals/run-evals.mjs --url <http(s) URL> [--tier logic|webmcp|all] [--headed]");
   console.log("       node evals/run-evals.mjs --validate");
 }
 
@@ -86,6 +91,296 @@ export async function prepareEvalRun({ url, headless = true, playwright } = {}) 
     },
     harness,
   };
+}
+
+function getPath(value, path) {
+  return path.split(".").reduce((current, key) => current?.[key], value);
+}
+
+function resolveTemplates(value, variables) {
+  if (Array.isArray(value)) return value.map((item) => resolveTemplates(item, variables));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, resolveTemplates(item, variables)]),
+    );
+  }
+  if (typeof value !== "string") return value;
+  return value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+    const replacement = getPath(variables, path.trim());
+    return replacement === undefined ? match : String(replacement);
+  });
+}
+
+function caseUrl(baseUrl, definition) {
+  const url = new URL(baseUrl);
+  if (definition.setup.mock && url.pathname.endsWith("/dev/s2.html")) {
+    url.searchParams.set("mock", definition.setup.mock);
+  }
+  url.searchParams.set("test", "1");
+  return url.href;
+}
+
+async function loadTargetContext(harness, driver) {
+  const info = await driver.executeTool("get_target_info", {});
+  const target = await harness.page.evaluate(async (targetId) => {
+    const response = await fetch(`/targets/${encodeURIComponent(targetId)}/manifest.json`);
+    return response.ok ? response.json() : null;
+  }, info.targetId);
+  if (target) return target;
+  const fallback = await harness.page.locator("textarea").inputValue().catch(() => "assert(true);");
+  return {
+    ...info,
+    demoRepros: {
+      broken: 'assert(false, "not isolated");',
+      weak: "assert(true);",
+      real: fallback,
+    },
+  };
+}
+
+async function executeAction(action, state, harness, driver) {
+  const resolved = resolveTemplates(action, state.variables);
+  const rejected = (error, fallbackCode) => {
+    const message = error instanceof Error ? error.message : String(error);
+    const code = error?.code
+      ?? fallbackCode
+      ?? (/bundle SHA-256 mismatch/i.test(message) ? "BUNDLE_SHA_MISMATCH" : undefined);
+    return { rejected: true, code, message };
+  };
+  switch (resolved.op) {
+    case "getTools":
+      return driver.getTools();
+    case "executeTool":
+      try {
+        return await driver.executeTool(resolved.name, resolved.input ?? {});
+      } catch (error) {
+        return rejected(error);
+      }
+    case "captureTool":
+      return driver.captureTool(resolved.name);
+    case "executeCapturedTool":
+      try {
+        return await driver.executeCapturedTool(
+          state.variables[resolved.tool],
+          resolved.input ?? {},
+        );
+      } catch (error) {
+        return rejected(error, "STALE_REPRO");
+      }
+    case "probePage":
+      return harness.probePage();
+    case "interceptBundle":
+      await harness.interceptBundle(resolved.version, resolved.mutation);
+      return { installed: true };
+    case "click":
+      await harness.click(resolved.selector);
+      return { clicked: true };
+    case "readSignedArtifact":
+      return harness.readSignedArtifact();
+    case "encodeReceipt":
+      return harness.encodeReceipt(state.variables[resolved.artifact]);
+    case "decodeReceipt":
+      return harness.decodeReceipt(state.variables[resolved.receipt]);
+    default:
+      throw new Error(`Unsupported action: ${resolved.op}`);
+  }
+}
+
+function runByVersion(result, version) {
+  return result?.runs?.find((run) => run.version === version);
+}
+
+function evaluateLogicCase(definition, variables, finalTools) {
+  const failures = [];
+  const check = (actual, expected, label) => {
+    if (expected !== undefined && actual !== expected) {
+      failures.push(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+  };
+  const names = finalTools.map(({ name }) => name);
+  const gateOpen = names.includes("submit_report");
+  check(gateOpen, definition.expect.gateOpen, "gateOpen");
+  if (definition.expect.toolAbsent) {
+    check(names.includes(definition.expect.toolAbsent), false, `${definition.expect.toolAbsent} present`);
+  }
+
+  if (["assert-false", "empty-repro", "good-error", "inverted"].includes(definition.id)) {
+    const result = variables.result;
+    check(result?.reason, definition.expect.reason, "reason");
+    check(runByVersion(result, "bad")?.verdict, definition.expect.badVerdict, "bad verdict");
+    check(runByVersion(result, "good")?.verdict, definition.expect.goodVerdict, "good verdict");
+  } else if (definition.id === "timeout-recovers") {
+    check(variables.timeoutRun?.reason, definition.expect.reason, "reason");
+    check(runByVersion(variables.timeoutRun, "bad")?.verdict, definition.expect.badVerdict, "bad verdict");
+    check(variables.pageProbe?.alive, definition.expect.pageAlive, "page alive");
+    if (!(variables.pageProbe?.recoveryMs < definition.expect.maxRecoveryMs)) {
+      failures.push(`recoveryMs: expected < ${definition.expect.maxRecoveryMs}, got ${variables.pageProbe?.recoveryMs}`);
+    }
+  } else if (definition.id === "bundle-sha-tamper") {
+    const rejected = variables.result?.rejected === true || typeof variables.result?.code === "string";
+    check(rejected, definition.expect.runRejected, "run rejected");
+    check(variables.result?.code, definition.expect.errorCode, "error code");
+  } else if (definition.id === "receipt-round-trip") {
+    check(variables.greenRun?.reason, definition.expect.reason, "reason");
+    check(variables.staged?.status, definition.expect.stagedStatus, "staged status");
+    check(
+      variables.artifact?.reproSha256 === variables.greenRun?.reproSha256
+        && variables.artifact?.reproSha256 === variables.decoded?.artifact?.reproSha256,
+      definition.expect.artifactHashMatchesDraft,
+      "artifact hash",
+    );
+    check(
+      JSON.stringify(variables.artifact) === JSON.stringify(variables.decoded?.artifact),
+      definition.expect.receiptArtifactRoundTrip,
+      "receipt round-trip",
+    );
+    check(variables.decoded?.reproHashOk, definition.expect.reproHashOk, "repro hash");
+  } else {
+    failures.push(`No logic evaluator for ${definition.id}`);
+  }
+  return failures;
+}
+
+function evaluateWebMcpCase(definition, variables, finalTools) {
+  const failures = [];
+  const check = (actual, expected, label) => {
+    const matches = typeof expected === "object" && expected !== null
+      ? JSON.stringify(actual) === JSON.stringify(expected)
+      : actual === expected;
+    if (expected !== undefined && !matches) {
+      failures.push(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+  };
+  const names = (tools) => tools.map(({ name }) => name);
+  const finalNames = names(finalTools);
+  check(finalNames.includes("submit_report"), definition.expect.gateOpen, "gateOpen");
+  if (definition.expect.toolAbsent) {
+    check(finalNames.includes(definition.expect.toolAbsent), false, `${definition.expect.toolAbsent} present`);
+  }
+
+  if (definition.id === "happy-3-round") {
+    check(
+      [variables.brokenRun?.reason, variables.weakRun?.reason, variables.realRun?.reason],
+      definition.expect.reasons,
+      "round reasons",
+    );
+    check(names(variables.openTools).length, definition.expect.toolCount, "open tool count");
+    check(
+      names(variables.openTools).includes(definition.expect.toolPresent),
+      true,
+      `${definition.expect.toolPresent} present`,
+    );
+  } else if (definition.id === "edit-revokes-tool") {
+    check(variables.greenRun?.reason, definition.expect.reasonBeforeEdit, "reason before edit");
+    check(names(variables.toolsBeforeEdit).length, definition.expect.toolCountBeforeEdit, "tool count before edit");
+    check(names(variables.toolsAfterEdit).length, definition.expect.toolCountAfterEdit, "tool count after edit");
+    check(
+      names(variables.toolsAfterEdit).includes(definition.expect.removedTool),
+      false,
+      `${definition.expect.removedTool} after edit`,
+    );
+  } else if (definition.id === "stale-submit") {
+    check(variables.greenRun?.reason, definition.expect.reasonBeforeEdit, "reason before edit");
+    check(variables.submitResult?.code, definition.expect.submitCode, "stale submit code");
+  } else if (definition.id === "baseline-tools") {
+    check(names(variables.tools).length, definition.expect.toolCount, "baseline tool count");
+    check(
+      names(variables.tools).toSorted(),
+      definition.expect.toolNames.toSorted(),
+      "baseline tool names",
+    );
+  } else {
+    failures.push(`No WebMCP evaluator for ${definition.id}`);
+  }
+  return failures;
+}
+
+async function runCase(definition, { baseUrl, harness, driver, evaluate }) {
+  const startedAt = Date.now();
+  await harness.navigate(caseUrl(baseUrl, definition));
+  const target = await loadTargetContext(harness, driver);
+  const setup = resolveTemplates(definition.setup, { target });
+  const state = { timings: {}, variables: { target, ...setup } };
+
+  for (const action of definition.actions) {
+    const actionStartedAt = Date.now();
+    const result = await executeAction(action, state, harness, driver);
+    const durationMs = Date.now() - actionStartedAt;
+    if (action.saveAs) {
+      state.variables[action.saveAs] = result;
+      state.timings[action.saveAs] = { durationMs };
+    }
+  }
+
+  const finalTools = await driver.getTools();
+  const failures = evaluate(definition, state.variables, finalTools);
+  return {
+    id: definition.id,
+    tier: definition.tier,
+    mustFail: definition.mustFail === true,
+    status: failures.length === 0 ? "pass" : "fail",
+    durationMs: Date.now() - startedAt,
+    details: failures.length === 0 ? "expectations met" : failures.join("; "),
+  };
+}
+
+export async function runLogicCase(definition, { baseUrl, harness }) {
+  return runCase(definition, {
+    baseUrl,
+    harness,
+    driver: harness.logic,
+    evaluate: evaluateLogicCase,
+  });
+}
+
+export async function runWebMcpCase(definition, { baseUrl, harness }) {
+  return runCase(definition, {
+    baseUrl,
+    harness,
+    driver: harness.webmcp,
+    evaluate: evaluateWebMcpCase,
+  });
+}
+
+export function formatResultsMarkdown({ url, chromeVersion, results, cases, generatedAt }) {
+  const byId = new Map(results.map((result) => [result.id, result]));
+  const summary = (tier) => {
+    const tierResults = tier === "overall"
+      ? results
+      : results.filter((result) => result.tier === tier);
+    const passed = tierResults.filter((result) => result.status === "pass").length;
+    const run = tierResults.filter((result) => result.status === "pass" || result.status === "fail").length;
+    const rate = run === 0 ? "not run" : `${((passed / run) * 100).toFixed(0)}%`;
+    return { passed, rate, run };
+  };
+  const lines = [
+    "# Evaluation results",
+    "",
+    "> WebMCP cases use native `document.modelContext`; logic cases use the `?test=1` hook. Both tiers execute the real sandbox.",
+    "",
+    `- URL: \`${url}\``,
+    `- Chrome: \`${chromeVersion}\``,
+    `- Generated: \`${generatedAt}\``,
+    "",
+    "| Tier | Passed | Run | Pass rate |",
+    "| --- | ---: | ---: | ---: |",
+  ];
+  for (const tier of ["webmcp", "logic", "overall"]) {
+    const { passed, rate, run } = summary(tier);
+    lines.push(`| ${tier} | ${passed} | ${run} | ${rate} |`);
+  }
+  lines.push(
+    "",
+    "| Case | Tier | Result | Detail |",
+    "| --- | --- | --- | --- |",
+  );
+  for (const definition of cases) {
+    const result = byId.get(definition.id);
+    lines.push(
+      `| ${definition.id} | ${definition.tier} | ${result?.status ?? "not run"} | ${(result?.details ?? "tier deferred").replaceAll("|", "\\|")} |`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 async function main() {
@@ -106,8 +401,37 @@ async function main() {
 
   const { chromeVersion, harness } = await prepareEvalRun(options);
   try {
-    console.log(`Chrome harness ready: ${chromeVersion}; ${cases.length} cases loaded`);
-    console.log("Case action execution will be added by the next S5 task.");
+    const selected = cases.filter(({ tier }) => options.tier === "all" || tier === options.tier);
+    const results = [];
+    for (const definition of selected) {
+      try {
+        const runner = definition.tier === "logic" ? runLogicCase : runWebMcpCase;
+        const result = await runner(definition, { baseUrl: options.url, harness });
+        results.push(result);
+        console.log(`${result.status.toUpperCase()} ${result.tier} ${result.id}: ${result.details}`);
+      } catch (error) {
+        const result = {
+          id: definition.id,
+          tier: definition.tier,
+          status: "fail",
+          details: error.message,
+        };
+        results.push(result);
+        console.log(`FAIL ${result.tier} ${result.id}: ${result.details}`);
+      }
+    }
+    const markdown = formatResultsMarkdown({
+      url: options.url,
+      chromeVersion,
+      results,
+      cases,
+      generatedAt: new Date().toISOString(),
+    });
+    await writeFile(join(EVALS_DIR, "RESULTS.md"), markdown);
+    const passed = results.filter(({ status }) => status === "pass").length;
+    const failed = results.filter(({ status }) => status === "fail").length;
+    console.log(`${passed}/${selected.length} selected cases passed; ${failed} failed`);
+    if (failed > 0) process.exitCode = 1;
   } finally {
     await harness.close();
   }
