@@ -6,6 +6,13 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const TARGET_ID = /^[a-z0-9][a-z0-9._-]*$/i;
 const RUN_VERDICTS = new Set(["pass", "fail", "error", "timeout"]);
 const WATCHDOG_MS = 30_000;
+const targetSnapshots = new Map();
+
+const freezeDeep = value => {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) freezeDeep(child);
+  return Object.freeze(value);
+};
 
 const fetchText = async url => {
   const response = await fetch(url);
@@ -24,25 +31,36 @@ const verifyBundle = async (label, text, expectedSha256) => {
 
 export async function loadTarget(id) {
   if (typeof id !== "string" || !TARGET_ID.test(id)) throw new TypeError("Invalid target id");
+  if (targetSnapshots.has(id)) return targetSnapshots.get(id);
 
-  const base = `/targets/${id}`;
-  const manifestResponse = await fetch(`${base}/manifest.json`);
-  if (!manifestResponse.ok) {
-    throw new Error(`Fetch failed (${manifestResponse.status}): ${base}/manifest.json`);
+  const snapshotPromise = (async () => {
+    const base = `/targets/${id}`;
+    const manifestResponse = await fetch(`${base}/manifest.json`);
+    if (!manifestResponse.ok) {
+      throw new Error(`Fetch failed (${manifestResponse.status}): ${base}/manifest.json`);
+    }
+    const manifest = await manifestResponse.json();
+    if (!manifest || typeof manifest !== "object") throw new Error("Invalid target manifest");
+
+    const [badText, goodText] = await Promise.all([
+      fetchText(`${base}/bad.js`),
+      fetchText(`${base}/good.js`),
+    ]);
+    const [bad, good] = await Promise.all([
+      verifyBundle("bad", badText, manifest.badSha256),
+      verifyBundle("good", goodText, manifest.goodSha256),
+    ]);
+
+    return freezeDeep({ manifest, bundles: { bad, good } });
+  })();
+  targetSnapshots.set(id, snapshotPromise);
+
+  try {
+    return await snapshotPromise;
+  } catch (error) {
+    if (targetSnapshots.get(id) === snapshotPromise) targetSnapshots.delete(id);
+    throw error;
   }
-  const manifest = await manifestResponse.json();
-  if (!manifest || typeof manifest !== "object") throw new Error("Invalid target manifest");
-
-  const [badText, goodText] = await Promise.all([
-    fetchText(`${base}/bad.js`),
-    fetchText(`${base}/good.js`),
-  ]);
-  const [bad, good] = await Promise.all([
-    verifyBundle("bad", badText, manifest.badSha256),
-    verifyBundle("good", goodText, manifest.goodSha256),
-  ]);
-
-  return { manifest, bundles: { bad, good } };
 }
 
 const validBundle = bundle => (
