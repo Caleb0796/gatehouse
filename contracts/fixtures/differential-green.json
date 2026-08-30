@@ -1,6 +1,6 @@
 {
   "green": true,
-  "reason": "REGRESSION_DEMONSTRATED",
+  "reason": "STABLE_LOCAL_DIFFERENTIAL",
   "runs": [
     {
       "version": "bad",

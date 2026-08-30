@@ -33,7 +33,7 @@ iframe→parent  { t:"ready" } / { t:"result", runId, verdict, logs, durationMs 
 ### 3.4 RunResult / DifferentialVerdict（A3/A4 修订）
 `runDifferential(code, {targetId, timeoutMs?}) → Promise<DifferentialVerdict>`——**targetId 必填**，重放锚定同一 manifest 与 bundle 哈希（A3）。
 **judge 是 16 组合全覆盖的全函数，按序判定**（A4）：
-1. `bad:"fail" && good:"pass"` → `green:true, reason:"REGRESSION_DEMONSTRATED"`
+1. `bad:"fail" && good:"pass"` → `green:true, reason:"STABLE_LOCAL_DIFFERENTIAL"`
 2. `bad:"timeout"` → `BAD_TIMEOUT`；3. `bad:"error"` → `BAD_ERROR`；4. `good:"timeout"` → `GOOD_TIMEOUT`；5. `good:"error"` → `GOOD_ERROR`
 6. `bad:"pass" && good:"fail"` → `INVERTED`；7. 双 fail → `FAIL_BOTH`；8. 双 pass → `PASS_BOTH`
 `tests/s1-differential.test.mjs` 必须枚举全部 16 组合断言归类（不是 7 案是 16 案）。
@@ -96,3 +96,4 @@ export const bus = {
 
 ## Changelog
 - v2 (2026-08-29): initial frozen set, post adversarial review.
+- v2.1 (2026-08-29): F1 stability gate — differential runs N=5 per version; green reason renamed REGRESSION_DEMONSTRATED → STABLE_LOCAL_DIFFERENTIAL; added UNSTABLE / EXECUTION_ERROR; artifact schema v→2 stores full samples. The gate is a non-determinism filter + local self-attestation, NOT an anti-forgery gate.

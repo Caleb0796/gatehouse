@@ -20,7 +20,7 @@
     { "op": "getTools", "saveAs": "openTools" }
   ],
   "expect": {
-    "reasons": ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"],
+    "reasons": ["FAIL_BOTH", "PASS_BOTH", "STABLE_LOCAL_DIFFERENTIAL"],
     "gateOpen": true,
     "toolPresent": "submit_report",
     "toolCount": 5

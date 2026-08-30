@@ -203,7 +203,7 @@ test("submit_report stages only a SHA-bound draft", async () => {
   const { draftSha } = await gate.setDraft("verified repro");
   gate.onVerdict({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
     reproSha256: draftSha,
   });
 
@@ -246,7 +246,7 @@ function setupSurface(verdictForCode, windowObject) {
 test("matching green registers submit_report with a signal and emits contract events", async () => {
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
     reproSha256,
   }));
 
@@ -277,7 +277,7 @@ test("matching green registers submit_report with a signal and emits contract ev
 test("editing revokes submit_report and a later green run registers a fresh signal", async () => {
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
     reproSha256,
   }));
   await surface.definitions.write_repro.execute({ code: "first" });
@@ -341,7 +341,7 @@ test("test hook mirrors dynamic availability and executes the shared table", asy
   const windowObject = { location: { search: "?mock=green&test=1" } };
   const { surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
     reproSha256,
   }), windowObject);
   const hook = windowObject.__gatehouseTestHook;
@@ -384,7 +384,7 @@ test("test hook is absent unless test equals one", () => {
 test("submit_report emits and hands off the staged artifact draft", async () => {
   const { events, stages, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
     reproSha256,
     runs: [
       {

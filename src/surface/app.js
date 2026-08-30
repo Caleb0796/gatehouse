@@ -133,7 +133,7 @@ function formatRun(result) {
 }
 
 export function trackDemoE2E(eventBus, body) {
-  const expectedReasons = ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"];
+  const expectedReasons = ["FAIL_BOTH", "PASS_BOTH", "STABLE_LOCAL_DIFFERENTIAL"];
   let runIndex = 0;
   let submitRegistered = false;
   body.dataset.e2e = "ready";

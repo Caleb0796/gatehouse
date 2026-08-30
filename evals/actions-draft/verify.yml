@@ -201,7 +201,7 @@ jobs:
 
             requireRecord(replay, "replay result");
             assert.equal(replay.green, true, "headless replay did not demonstrate a regression");
-            assert.equal(replay.reason, "REGRESSION_DEMONSTRATED", "headless replay reason changed");
+            assert.equal(replay.reason, "STABLE_LOCAL_DIFFERENTIAL", "headless replay reason changed");
             assert.equal(replay.targetId, artifact.targetId, "headless replay used a different target");
             assert.equal(replay.reproSha256, artifact.reproSha256, "headless replay used different repro code");
 

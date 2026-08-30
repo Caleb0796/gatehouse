@@ -14,7 +14,7 @@
     { "op": "executeCapturedTool", "tool": "staleSubmit", "input": {}, "saveAs": "submitResult" }
   ],
   "expect": {
-    "reasonBeforeEdit": "REGRESSION_DEMONSTRATED",
+    "reasonBeforeEdit": "STABLE_LOCAL_DIFFERENTIAL",
     "submitCode": "STALE_REPRO",
     "gateOpen": false,
     "toolAbsent": "submit_report"

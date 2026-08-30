@@ -240,7 +240,7 @@ test("WebMCP stale submit treats native revocation as STALE_REPRO", async () => 
         }
         if (name === "run_repro") {
           gateOpen = true;
-          return { reason: "REGRESSION_DEMONSTRATED" };
+          return { reason: "STABLE_LOCAL_DIFFERENTIAL" };
         }
         throw new Error(`unexpected tool: ${name}`);
       },

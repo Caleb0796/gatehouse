@@ -40,7 +40,7 @@
     {
       "at": "2026-08-29T10:05:00Z",
       "event": "green",
-      "detail": "REGRESSION_DEMONSTRATED"
+      "detail": "STABLE_LOCAL_DIFFERENTIAL"
     },
     {
       "at": "2026-08-29T10:06:00Z",

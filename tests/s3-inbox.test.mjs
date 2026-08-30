@@ -81,7 +81,7 @@ test("builds a newest-first list with verdict badges", () => {
   assert.deepEqual(view.map(entry => entry.artifact.targetId), ["newest", "older"]);
   assert.deepEqual(view.map(entry => entry.verdict), [
     { label: "PASS → PASS", tone: "neutral" },
-    { label: "REGRESSION_DEMONSTRATED", tone: "green" },
+    { label: "STABLE_LOCAL_DIFFERENTIAL", tone: "green" },
   ]);
 });
 
@@ -105,7 +105,7 @@ test("signed events persist, reveal, list, and show report details", () => {
   assert.equal(root.hidden, false);
   assert.deepEqual(loadInbox(storage), [fixture]);
   const rendered = textTree(root);
-  assert.match(rendered, /REGRESSION_DEMONSTRATED/);
+  assert.match(rendered, /STABLE_LOCAL_DIFFERENTIAL/);
   assert.match(rendered, /gatehouse-demo-lib · demo-lib-001/);
   assert.match(rendered, /const r = demoLib\.add\(2, 2\)/);
   assert.match(rendered, /ReproAssertionError/);

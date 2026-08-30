@@ -15,7 +15,7 @@
     { "op": "decodeReceipt", "receipt": "receipt", "saveAs": "decoded" }
   ],
   "expect": {
-    "reason": "REGRESSION_DEMONSTRATED",
+    "reason": "STABLE_LOCAL_DIFFERENTIAL",
     "stagedStatus": "staged_awaiting_human_signature",
     "artifactHashMatchesDraft": true,
     "receiptArtifactRoundTrip": true,

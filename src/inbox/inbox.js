@@ -8,7 +8,7 @@ function verdictFor(artifact) {
   const bad = artifact.runs.find(run => run.version === "bad")?.verdict ?? "missing";
   const good = artifact.runs.find(run => run.version === "good")?.verdict ?? "missing";
   if (bad === "fail" && good === "pass") {
-    return { label: "REGRESSION_DEMONSTRATED", tone: "green" };
+    return { label: "STABLE_LOCAL_DIFFERENTIAL", tone: "green" };
   }
   return { label: `${bad.toUpperCase()} → ${good.toUpperCase()}`, tone: "neutral" };
 }

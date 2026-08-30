@@ -46,7 +46,7 @@ async function staged() {
   const state = await gate.setDraft("assert(add(2, 2) === 4)");
   gate.onVerdict({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
     reproSha256: state.draftSha,
     runs,
   });
