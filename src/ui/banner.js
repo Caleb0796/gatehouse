@@ -1,4 +1,4 @@
-export const CHROME_COMMAND = 'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" <url>';
+export const CHROME_COMMAND = 'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" http://localhost:8080/';
 export const CHATGPT_SETTINGS_PATH = "Settings → Browser → Permissions → Enable site tools";
 
 function browserName(userAgent) {
@@ -98,19 +98,23 @@ export function init(rootEl, deps = {}) {
   const setup = doc.createElement("div");
   setup.className = "env-banner__setup";
   const currentUrl = String(win.location?.href || "<url>");
-  const chromeCommand = CHROME_COMMAND.replace("<url>", currentUrl);
 
   const chromeRow = doc.createElement("div");
   chromeRow.className = "env-banner__setup-row";
-  appendText(doc, chromeRow, "code", chromeCommand);
-  chromeRow.append(copyButton(doc, chromeCommand, "Copy Chrome command", clipboard));
+  appendText(doc, chromeRow, "code", CHROME_COMMAND);
+  chromeRow.append(copyButton(doc, CHROME_COMMAND, "Copy Chrome command", clipboard));
+
+  const pageUrlRow = doc.createElement("div");
+  pageUrlRow.className = "env-banner__setup-row";
+  appendText(doc, pageUrlRow, "span", "Page URL");
+  appendText(doc, pageUrlRow, "code", currentUrl);
 
   const chatGptRow = doc.createElement("div");
   chatGptRow.className = "env-banner__setup-row";
   appendText(doc, chatGptRow, "span", `${CHATGPT_SETTINGS_PATH} · GPT-5.6 Sol/Terra supported · Luna unavailable`);
   chatGptRow.append(copyButton(doc, CHATGPT_SETTINGS_PATH, "Copy ChatGPT path", clipboard));
 
-  setup.append(chromeRow, chatGptRow);
+  setup.append(chromeRow, pageUrlRow, chatGptRow);
   rootEl.append(summary, setup);
 
   return environment;
