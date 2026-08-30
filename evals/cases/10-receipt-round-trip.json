@@ -11,12 +11,13 @@
     { "op": "executeTool", "name": "submit_report", "input": {}, "saveAs": "staged" },
     { "op": "click", "selector": "#sign-panel button", "saveAs": "signed" },
     { "op": "readSignedArtifact", "saveAs": "artifact" },
+    { "op": "inspectInboxReceipt", "saveAs": "receiptPage" },
     { "op": "encodeReceipt", "artifact": "artifact", "saveAs": "receipt" },
     { "op": "decodeReceipt", "receipt": "receipt", "saveAs": "decoded" }
   ],
   "expect": {
     "reason": "REGRESSION_DEMONSTRATED",
-    "stagedStatus": "staged_awaiting_human_signature",
+    "stagedStatus": "staged_awaiting_local_approval",
     "artifactHashMatchesDraft": true,
     "receiptArtifactRoundTrip": true,
     "reproHashOk": true,

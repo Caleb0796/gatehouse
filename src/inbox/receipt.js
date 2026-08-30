@@ -2,6 +2,8 @@ import { sha256Hex } from "../shared/hash.js";
 
 const URL_PAYLOAD_LIMIT = 6 * 1024;
 const COMPRESSED_LIMIT = 64 * 1024;
+const DECOMPRESSED_LIMIT = 64 * 1024;
+const PAYLOAD_LIMIT_ERROR = "receipt payload exceeds 64KB";
 const SHA256_RE = /^[a-f0-9]{64}$/;
 const ARTIFACT_KEYS = [
   "badSha256",
@@ -51,7 +53,14 @@ function isTimelineEntry(entry) {
     && isString(entry.detail);
 }
 
-function isArtifact(artifact) {
+function hasBothRunVersions(runs) {
+  return runs.length === 2
+    && new Set(runs.map(run => run.version)).size === 2
+    && runs.some(run => run.version === "bad")
+    && runs.some(run => run.version === "good");
+}
+
+export function isSubmissionArtifact(artifact) {
   return hasExactKeys(artifact, ARTIFACT_KEYS)
     && artifact.v === 1
     && isString(artifact.targetId)
@@ -64,6 +73,9 @@ function isArtifact(artifact) {
     && SHA256_RE.test(artifact.reproSha256)
     && Array.isArray(artifact.runs)
     && artifact.runs.every(isRun)
+    && hasBothRunVersions(artifact.runs)
+    && artifact.runs.find(run => run.version === "bad").bundleSha256 === artifact.badSha256
+    && artifact.runs.find(run => run.version === "good").bundleSha256 === artifact.goodSha256
     && Array.isArray(artifact.timeline)
     && artifact.timeline.every(isTimelineEntry)
     && isString(artifact.signedAt)
@@ -72,9 +84,31 @@ function isArtifact(artifact) {
     && (artifact.targetKind === "real" || artifact.targetKind === "seed");
 }
 
-async function transform(bytes, stream) {
-  const readable = new Blob([bytes]).stream().pipeThrough(stream);
-  return new Uint8Array(await new Response(readable).arrayBuffer());
+async function transform(bytes, stream, maxOutputBytes = Number.POSITIVE_INFINITY) {
+  const reader = new Blob([bytes]).stream().pipeThrough(stream).getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxOutputBytes) {
+        await reader.cancel(PAYLOAD_LIMIT_ERROR).catch(() => {});
+        throw new RangeError(PAYLOAD_LIMIT_ERROR);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
 }
 
 function toBase64Url(bytes) {
@@ -101,8 +135,10 @@ function getPayload(hash) {
 
 export async function encodeReceipt(artifact) {
   const json = JSON.stringify(artifact);
+  const bytes = new TextEncoder().encode(json);
+  if (bytes.byteLength > DECOMPRESSED_LIMIT) return { download: json };
   const compressed = await transform(
-    new TextEncoder().encode(json),
+    bytes,
     new CompressionStream("deflate-raw"),
   );
   const payload = toBase64Url(compressed);
@@ -114,18 +150,25 @@ export async function decodeReceipt(hash) {
   try {
     const payload = getPayload(hash);
     if (payload.length > Math.ceil(COMPRESSED_LIMIT * 4 / 3)) {
-      return { error: "receipt payload exceeds 64KB" };
+      return { error: PAYLOAD_LIMIT_ERROR };
     }
     const compressed = fromBase64Url(payload);
     if (compressed.byteLength > COMPRESSED_LIMIT) {
-      return { error: "receipt payload exceeds 64KB" };
+      return { error: PAYLOAD_LIMIT_ERROR };
     }
-    const decompressed = await transform(compressed, new DecompressionStream("deflate-raw"));
+    const decompressed = await transform(
+      compressed,
+      new DecompressionStream("deflate-raw"),
+      DECOMPRESSED_LIMIT,
+    );
     const artifact = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(decompressed));
-    if (!isArtifact(artifact)) return { error: "receipt artifact does not match the required schema" };
+    if (!isSubmissionArtifact(artifact)) return { error: "receipt artifact does not match the required schema" };
     const reproHashOk = await sha256Hex(artifact.repro) === artifact.reproSha256;
     return { artifact, reproHashOk };
-  } catch {
+  } catch (error) {
+    if (error instanceof RangeError && error.message === PAYLOAD_LIMIT_ERROR) {
+      return { error: PAYLOAD_LIMIT_ERROR };
+    }
     return { error: "receipt payload is invalid" };
   }
 }

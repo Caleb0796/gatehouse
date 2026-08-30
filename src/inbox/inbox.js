@@ -1,5 +1,6 @@
 import { bus as sharedBus } from "../shared/bus.js";
 import { initAdopt } from "./adopt.js";
+import { encodeReceipt, isSubmissionArtifact } from "./receipt.js";
 import { initReplay } from "./replay.js";
 
 export const INBOX_STORAGE_KEY = "gatehouse.inbox.v1";
@@ -16,7 +17,7 @@ function verdictFor(artifact) {
 export function loadInbox(storage = localStorage) {
   try {
     const stored = JSON.parse(storage.getItem(INBOX_STORAGE_KEY) ?? "[]");
-    return Array.isArray(stored) ? stored : [];
+    return Array.isArray(stored) ? stored.filter(isSubmissionArtifact) : [];
   } catch {
     return [];
   }
@@ -46,6 +47,71 @@ function appendField(document, parent, label, value) {
   parent.append(term, detail);
 }
 
+function safeId(targetId) {
+  const cleaned = String(targetId)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  return cleaned || "report";
+}
+
+function resolveReceiptUrl(url, document, baseUrl) {
+  const base = baseUrl ?? document.baseURI;
+  return base ? new URL(url, base).href : url;
+}
+
+export async function initReceiptShare(rootEl, artifact, deps = {}) {
+  const document = rootEl.ownerDocument;
+  const heading = document.createElement("h4");
+  const status = document.createElement("p");
+  heading.textContent = "Shareable receipt";
+  status.textContent = "Preparing receipt…";
+  rootEl.replaceChildren(heading, status);
+
+  try {
+    const encoded = await (deps.encodeReceipt ?? encodeReceipt)(artifact);
+    if ("url" in encoded) {
+      const guidance = document.createElement("p");
+      const open = document.createElement("a");
+      const copy = document.createElement("button");
+      const receiptUrl = resolveReceiptUrl(encoded.url, document, deps.baseUrl);
+      guidance.textContent = "Open or copy this receipt link to share the locally approved evidence.";
+      open.href = receiptUrl;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = "Open receipt";
+      copy.type = "button";
+      copy.textContent = "Copy receipt link";
+      status.textContent = "Receipt link fits the 6 KB sharing limit.";
+      copy.addEventListener("click", async () => {
+        try {
+          const clipboard = deps.clipboard ?? navigator.clipboard;
+          await clipboard.writeText(receiptUrl);
+          status.textContent = "Receipt link copied";
+        } catch {
+          status.textContent = "Copy failed; open the receipt and copy its address instead.";
+        }
+      });
+      rootEl.replaceChildren(heading, guidance, open, copy, status);
+      return () => {};
+    }
+
+    const guidance = document.createElement("p");
+    const download = document.createElement("a");
+    const createObjectURL = deps.createObjectURL ?? URL.createObjectURL.bind(URL);
+    const blobUrl = createObjectURL(new Blob([encoded.download], { type: "application/json" }));
+    guidance.textContent = "This receipt exceeds the 6 KB link limit. Download and share the JSON file instead.";
+    download.href = blobUrl;
+    download.download = `gatehouse-receipt-${safeId(artifact.targetId)}.json`;
+    download.textContent = "Download receipt JSON";
+    status.textContent = "JSON download fallback ready";
+    rootEl.replaceChildren(heading, guidance, download, status);
+    return () => (deps.revokeObjectURL ?? URL.revokeObjectURL.bind(URL))(blobUrl);
+  } catch {
+    status.textContent = "Receipt could not be prepared.";
+    return () => {};
+  }
+}
+
 function renderDetail(document, root, entry, deps) {
   const heading = document.createElement("h3");
   const fields = document.createElement("dl");
@@ -55,7 +121,7 @@ function renderDetail(document, root, entry, deps) {
 
   heading.textContent = entry.title;
   appendField(document, fields, "Schema version", entry.artifact.v);
-  appendField(document, fields, "Signed at", entry.artifact.signedAt);
+  appendField(document, fields, "Local approval recorded at", entry.artifact.signedAt);
   appendField(document, fields, "Target kind", entry.artifact.targetKind);
   appendField(document, fields, "Issue URL", entry.artifact.issueUrl);
   appendField(document, fields, "Reported-bad version", entry.artifact.badVersion);
@@ -90,6 +156,16 @@ function renderDetail(document, root, entry, deps) {
     root.append(eventFields);
   }
 
+  const receipt = document.createElement("section");
+  receipt.className = "inbox-receipt";
+  root.append(receipt);
+  let disposed = false;
+  let disposeReceipt = () => {};
+  void initReceiptShare(receipt, entry.artifact, deps).then((cleanup) => {
+    if (disposed) cleanup();
+    else disposeReceipt = cleanup;
+  });
+
   const replay = document.createElement("section");
   replay.className = "inbox-replay";
   root.append(replay);
@@ -98,7 +174,13 @@ function renderDetail(document, root, entry, deps) {
   const adopt = document.createElement("section");
   adopt.className = "inbox-adopt";
   root.append(adopt);
-  initAdopt(adopt, entry.artifact, deps);
+  const disposeAdopt = initAdopt(adopt, entry.artifact, deps);
+
+  return () => {
+    disposed = true;
+    disposeReceipt();
+    disposeAdopt();
+  };
 }
 
 function render(root, entries, selectedIndex, select, deps) {
@@ -106,16 +188,16 @@ function render(root, entries, selectedIndex, select, deps) {
   const heading = document.createElement("h2");
   const list = document.createElement("ol");
   const detail = document.createElement("article");
-  heading.textContent = "Signed report inbox";
+  heading.textContent = "Locally approved reports";
   list.className = "inbox-list";
   detail.className = "inbox-detail";
   root.replaceChildren(heading, list, detail);
 
   if (!entries.length) {
     const empty = document.createElement("p");
-    empty.textContent = "No signed reports yet.";
+    empty.textContent = "No locally approved reports yet.";
     detail.append(empty);
-    return;
+    return () => {};
   }
 
   entries.forEach((entry, index) => {
@@ -136,7 +218,7 @@ function render(root, entries, selectedIndex, select, deps) {
     list.append(item);
   });
 
-  renderDetail(document, detail, entries[selectedIndex] ?? entries[0], deps);
+  return renderDetail(document, detail, entries[selectedIndex] ?? entries[0], deps);
 }
 
 export function init(rootEl, deps = {}) {
@@ -144,11 +226,13 @@ export function init(rootEl, deps = {}) {
   const eventBus = deps.bus ?? sharedBus;
   let artifacts = loadInbox(storage);
   let selectedIndex = 0;
+  let disposeDetail = () => {};
 
   const draw = () => {
+    disposeDetail();
     const entries = createInboxView(artifacts);
     rootEl.hidden = entries.length === 0;
-    render(rootEl, entries, selectedIndex, index => {
+    disposeDetail = render(rootEl, entries, selectedIndex, index => {
       selectedIndex = index;
       draw();
     }, deps);
@@ -161,5 +245,8 @@ export function init(rootEl, deps = {}) {
   });
 
   draw();
-  return unsubscribe;
+  return () => {
+    disposeDetail();
+    unsubscribe();
+  };
 }

@@ -5,6 +5,7 @@ import {
   createInboxView,
   INBOX_STORAGE_KEY,
   init,
+  initReceiptShare,
   loadInbox,
   storeArtifact,
 } from "../src/inbox/inbox.js";
@@ -47,6 +48,7 @@ class Element {
 
 function fakeDocument() {
   const document = {
+    baseURI: "https://gatehouse.test/app/index.html",
     createElement: tagName => new Element(document, tagName),
   };
   return document;
@@ -109,6 +111,9 @@ test("signed events persist, reveal, list, and show report details", () => {
   assert.match(rendered, /gatehouse-demo-lib · demo-lib-001/);
   assert.match(rendered, /const r = demoLib\.add\(2, 2\)/);
   assert.match(rendered, /ReproAssertionError/);
+  assert.match(rendered, /Locally approved reports/);
+  assert.match(rendered, /Local approval recorded at/);
+  assert.doesNotMatch(rendered, /Signed report inbox|Signed at/);
 
   const second = structuredClone(fixture);
   second.targetId = "newest-report";
@@ -125,4 +130,82 @@ test("signed events persist, reveal, list, and show report details", () => {
 test("ignores corrupt stored inbox data", () => {
   assert.deepEqual(loadInbox(memoryStorage({ [INBOX_STORAGE_KEY]: "{" })), []);
   assert.deepEqual(loadInbox(memoryStorage({ [INBOX_STORAGE_KEY]: "{}" })), []);
+  assert.deepEqual(loadInbox(memoryStorage({
+    [INBOX_STORAGE_KEY]: JSON.stringify([null, {}, fixture]),
+  })), [fixture]);
+});
+
+test("offers a small signed artifact as an openable and copyable receipt link", async () => {
+  const document = fakeDocument();
+  const root = new Element(document, "section");
+  const copied = [];
+  await initReceiptShare(root, fixture, {
+    clipboard: { writeText: async value => copied.push(value) },
+  });
+
+  const open = findByTag(root, "a")[0];
+  const copy = findByTag(root, "button")[0];
+  assert.match(open.href, /^https:\/\/gatehouse\.test\/app\/receipt\.html#a=[A-Za-z0-9_-]+$/);
+  assert.equal(open.textContent, "Open receipt");
+  assert.equal(copy.textContent, "Copy receipt link");
+  assert.match(textTree(root), /fits the 6 KB sharing limit/);
+
+  await copy.listeners.click();
+  assert.deepEqual(copied, [open.href]);
+  assert.match(textTree(root), /Receipt link copied/);
+});
+
+test("explains and downloads the JSON fallback when a receipt exceeds 6 KB", async () => {
+  const document = fakeDocument();
+  const root = new Element(document, "section");
+  const revoked = [];
+  const json = JSON.stringify(fixture);
+  const cleanup = await initReceiptShare(root, fixture, {
+    encodeReceipt: async () => ({ download: json }),
+    createObjectURL: blob => {
+      assert.equal(blob.type, "application/json");
+      assert.equal(blob.size, new Blob([json]).size);
+      return "blob:receipt-json";
+    },
+    revokeObjectURL: value => revoked.push(value),
+  });
+
+  const download = findByTag(root, "a")[0];
+  assert.equal(download.href, "blob:receipt-json");
+  assert.equal(download.download, "gatehouse-receipt-demo-lib-001.json");
+  assert.equal(download.textContent, "Download receipt JSON");
+  assert.match(textTree(root), /exceeds the 6 KB link limit/);
+  assert.match(textTree(root), /share the JSON file instead/);
+
+  cleanup();
+  assert.deepEqual(revoked, ["blob:receipt-json"]);
+});
+
+test("releases generated detail downloads on redraw and dispose", () => {
+  const storage = memoryStorage();
+  const handlers = new Map();
+  const eventBus = {
+    on(type, handler) {
+      handlers.set(type, handler);
+      return () => handlers.delete(type);
+    },
+  };
+  const document = fakeDocument();
+  const root = new Element(document, "section");
+  const revoked = [];
+  let nextBlob = 0;
+  const unsubscribe = init(root, {
+    storage,
+    bus: eventBus,
+    encodeReceipt: async () => ({ url: "receipt.html#a=fixture" }),
+    createObjectURL: () => `blob:adopt-${nextBlob += 1}`,
+    revokeObjectURL: value => revoked.push(value),
+  });
+
+  handlers.get("signed")({ artifact: fixture });
+  handlers.get("signed")({ artifact: structuredClone(fixture) });
+  assert.deepEqual(revoked, ["blob:adopt-1"]);
+
+  unsubscribe();
+  assert.deepEqual(revoked, ["blob:adopt-1", "blob:adopt-2"]);
 });

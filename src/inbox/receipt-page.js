@@ -13,7 +13,7 @@ export function createReceiptView(artifact, reproHashOk) {
       ["Library", artifact.library],
       ["Target kind", artifact.targetKind],
       ["Issue URL", artifact.issueUrl],
-      ["Signed at", artifact.signedAt],
+      ["Local approval recorded at", artifact.signedAt],
       ["User agent", artifact.ua],
     ],
     builds: [
@@ -82,7 +82,7 @@ export function renderReceipt(root, artifact, reproHashOk) {
   const verification = document.createElement("div");
   heading.textContent = "Gatehouse receipt";
   guidance.className = "guidance";
-  guidance.textContent = "Paste this link into your GitHub issue so maintainers can inspect the signed evidence.";
+  guidance.textContent = "Paste this link into your GitHub issue so maintainers can inspect the locally approved evidence. This browser-local approval is unauthenticated, does not verify identity, is not a cryptographic signature, and can be activated by automation.";
   verification.className = `verification ${reproHashOk ? "verified" : "unverified"}`;
   verification.textContent = view.verification;
   root.replaceChildren(heading, guidance, verification);

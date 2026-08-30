@@ -64,6 +64,8 @@ test("timeline consumes all five bus event types with distinct styles", () => {
   );
   assert.match(list.children[1].children[1].children[1].textContent, /FAIL_BOTH/);
   assert.match(list.children[2].children[1].children[1].textContent, /abcdef123456/);
+  assert.equal(list.children[4].children[1].children[0].textContent, "Local approval recorded");
+  assert.match(list.children[4].children[1].children[1].textContent, /Approval recorded/);
 });
 
 test("submit_report registration receives the gate-opened memory-anchor style", () => {

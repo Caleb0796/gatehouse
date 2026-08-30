@@ -69,6 +69,17 @@ test("repeating the same green verdict is idempotent", async () => {
   assert.deepEqual(repeated, opened);
 });
 
+test("a later non-green verdict for the bound draft closes the gate", async () => {
+  const gate = createGate();
+  const { draftSha } = await gate.setDraft("nondeterministic repro");
+  gate.onVerdict(verdict(true, "REGRESSION_DEMONSTRATED", draftSha));
+
+  const state = gate.onVerdict(verdict(false, "PASS_BOTH", draftSha));
+
+  assert.equal(state.gateOpen, false);
+  assert.equal(state.boundSha, null);
+});
+
 test("a closed gate can reopen after a new matching green verdict", async () => {
   const gate = createGate();
   const { draftSha: firstSha } = await gate.setDraft("first repro");

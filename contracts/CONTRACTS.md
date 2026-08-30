@@ -41,18 +41,22 @@ iframe→parent  { t:"ready" } / { t:"result", runId, verdict, logs, durationMs 
 ### 3.5 SubmissionArtifact（A3 增补）
 v1 字段 + `"issueUrl": string|null`、`"targetKind": "real"|"seed"`。无姓名字段不变。
 
+兼容语义：v1 wire 名 `signedAt`、timeline event `"signed"` 与相关内部标识继续保留，但只表示浏览器记录了一次本地 approval。该 approval 未认证、不验证身份、不是密码学签名，且自动化可以触发页面控件。
+
 ### 3.6 Surface 事件（`src/shared/bus.js`，S2 发、S3/S4 听）
 ```js
-bus.emit("surface", { change:"registered"|"revoked", tool:"submit_report", reason:"differential green"|"repro edited", at:Date.now() });
+bus.emit("surface", { change:"registered"|"revoked", tool:"submit_report", reason:"differential green"|"repro edited"|"differential no longer green", at:Date.now() });
 bus.emit("run",     { verdict: DifferentialVerdict });      // S4 时间线/计分牌
-bus.emit("draft",   { reproSha256, length });               // S4 草稿状态
-bus.emit("staged",  { artifactDraft });                     // S2→签名 UI
-bus.emit("signed",  { artifact: SubmissionArtifact });      // S3 收件箱入库
+bus.emit("draft",   { reproSha256, length, source: "tool" | "editor" }); // S4 草稿状态
+bus.emit("staged",  { artifactDraft });                     // S2→本地 approval UI
+bus.emit("signed",  { artifact: SubmissionArtifact });      // v1 兼容事件：本地 approval 后由 S3 入库
 ```
+
+`draft.source` 标识草稿来自 `write_repro` 工具还是可见编辑器输入；UI 消费者据此同步工具写入，同时避免较早完成的异步写入覆盖更新的编辑器内容。
 
 ### 3.7 回执 URL（B5/B6 重写）
 编码：`JSON.stringify(artifact)` → `CompressionStream("deflate-raw")` → base64url → `receipt.html#a=<...>`。**预算：编码后 ≤6KB 走 URL；超限只提供下载 JSON**（write_repro 8KB 上限 + logs 每 run 截 10 条使 URL 路径为常态）。
-解码校验（B6）：payload 解压前上限 64KB；解出后过**严格 schema 全字段校验**（手写，不用 assertShape）；重算 `sha256(repro)` 比对，标签写 **"repro hash verified ✓"**（不写笼统 verified）；版本/哈希字段原样展示注明 as-claimed。**渲染只用 `textContent`，全页 grep 无 `innerHTML`**；解码失败返回 `{error}` 页面友好显示，不 throw。
+解码校验（B6）：payload 解压前上限 64KB；解出后过**严格 schema 全字段校验**（手写，不用 assertShape），并要求顶层 bad/good bundle hash 与对应 run 一致；重算 `sha256(repro)` 比对，标签写 **"repro hash verified ✓"**（不写笼统 verified）；版本/哈希字段原样展示注明 as-claimed。**渲染只用 `textContent`，全页 grep 无 `innerHTML`**；解码失败返回 `{error}` 页面友好显示，不 throw。
 
 ### 3.8 冻结层代码（S0 落盘，全员只读）
 
@@ -95,4 +99,5 @@ export const bus = {
 
 
 ## Changelog
+- v2 clarification (2026-08-30): documented `signed` / `signedAt` as legacy names for unauthenticated browser-local approval, and added `draft.source` so UI consumers can distinguish tool writes from editor input.
 - v2 (2026-08-29): initial frozen set, post adversarial review.

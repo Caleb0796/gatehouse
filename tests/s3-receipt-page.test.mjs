@@ -22,7 +22,20 @@ test("receipt page is static, textContent-only, and does not import the sandbox"
   assert.doesNotMatch(`${html}\n${pageScript}`, /innerHTML/);
   assert.doesNotMatch(`${html}\n${pageScript}`, /sandbox|runner\.js|eval\(|new Function/);
   assert.match(html, /Paste this link into your GitHub issue/i);
+  assert.match(html, /locally approved evidence/i);
+  for (const phrase of [
+    /browser-local approval is unauthenticated/,
+    /does not verify identity/,
+    /not a cryptographic signature/,
+    /activated by automation/,
+  ]) {
+    assert.match(html, phrase);
+    assert.match(pageScript, phrase);
+  }
+  assert.match(html, /rel="icon" href="data:image\/svg\+xml/);
   assert.match(pageScript, /Download receipt JSON/);
+  assert.match(pageScript, /Local approval recorded at/);
+  assert.doesNotMatch(`${html}\n${pageScript}`, /inspect the signed evidence|\["Signed at"/);
 });
 
 test("receipt view includes every artifact value and labels claims", () => {

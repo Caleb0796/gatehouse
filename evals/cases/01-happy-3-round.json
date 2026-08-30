@@ -17,12 +17,21 @@
     { "op": "executeTool", "name": "run_repro", "saveAs": "weakRun" },
     { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repros.real}}" } },
     { "op": "executeTool", "name": "run_repro", "saveAs": "realRun" },
-    { "op": "getTools", "saveAs": "openTools" }
+    { "op": "getTools", "saveAs": "openTools" },
+    { "op": "executeTool", "name": "submit_report", "input": {}, "saveAs": "staged" },
+    { "op": "click", "selector": "#sign-panel button" },
+    { "op": "readSignedArtifact", "saveAs": "artifact" },
+    { "op": "replaySignedArtifact", "saveAs": "replay" }
   ],
   "expect": {
     "reasons": ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"],
     "gateOpen": true,
     "toolPresent": "submit_report",
-    "toolCount": 5
+    "toolCount": 5,
+    "stagedStatus": "staged_awaiting_local_approval",
+    "artifactHashMatchesRun": true,
+    "finalTimelineEvent": "signed",
+    "replayConsistent": true,
+    "replayLabel": "Replay matches recorded runs"
   }
 }

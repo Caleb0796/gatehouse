@@ -120,7 +120,7 @@ function getToolTable() {
       execute: async () => {
         const artifactDraft = { targetId: target.id, repro: draft };
         bus.emit("staged", { artifactDraft });
-        return { status: "staged_awaiting_human_signature" };
+        return { status: "staged_awaiting_local_approval" };
       },
     };
   }

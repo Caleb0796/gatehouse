@@ -21,11 +21,18 @@ function sameRun(recorded, current) {
 }
 
 export function runsMatch(recordedRuns, currentRuns) {
-  return recordedRuns.length === currentRuns.length
-    && recordedRuns.every(recorded => sameRun(
-      recorded,
-      currentRuns.find(current => current.version === recorded.version),
-    ));
+  const indexRuns = (runs) => {
+    if (!Array.isArray(runs) || runs.length !== 2) return null;
+    const indexed = new Map(runs.map(run => [run.version, run]));
+    return indexed.size === 2 && indexed.has("bad") && indexed.has("good")
+      ? indexed
+      : null;
+  };
+  const recorded = indexRuns(recordedRuns);
+  const current = indexRuns(currentRuns);
+  return recorded !== null
+    && current !== null
+    && ["bad", "good"].every(version => sameRun(recorded.get(version), current.get(version)));
 }
 
 export async function runReplay(artifact, runDifferential) {

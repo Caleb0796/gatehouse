@@ -5,7 +5,7 @@ const EVENT_LABELS = {
   run: "Differential run",
   draft: "Repro draft",
   staged: "Report staged",
-  signed: "Report signed",
+  signed: "Local approval recorded",
 };
 
 function shortHash(value) {
@@ -26,7 +26,7 @@ function describe(type, detail = {}) {
   if (type === "staged") {
     return `Artifact ready · ${detail.artifactDraft?.targetId || "unknown target"}`;
   }
-  return `Submission recorded · ${detail.artifact?.targetId || "unknown target"}`;
+  return `Approval recorded · ${detail.artifact?.targetId || "unknown target"}`;
 }
 
 function eventTime(type, detail, now) {

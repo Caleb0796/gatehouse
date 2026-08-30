@@ -198,7 +198,7 @@ export function createToolDefinitions({
     submit_report: {
       name: "submit_report",
       description:
-        'Stages the verified reproduction and its differential evidence for review by the person at this page. Returns { status: "staged_awaiting_human_signature" }. Nothing is submitted anywhere until a person signs in the page UI.',
+        'Stages the verified reproduction and its differential evidence for local review. Returns { status: "staged_awaiting_local_approval" }. Nothing is sent anywhere; the browser UI can record an unauthenticated local approval that does not verify identity or provide a cryptographic signature.',
       inputSchema: {
         type: "object",
         properties: {},
@@ -216,7 +216,7 @@ export function createToolDefinitions({
           return { code: "STALE_REPRO", message: "The verified reproduction no longer matches the current draft." };
         }
         await stageReport(state);
-        return { status: "staged_awaiting_human_signature" };
+        return { status: "staged_awaiting_local_approval" };
       },
     },
   };
@@ -271,38 +271,44 @@ export function createSurface({
   stageReport,
   eventBus = bus,
   windowObject = typeof window === "undefined" ? undefined : window,
+  gate: stateGate = createGate(),
 }) {
-  const gate = createGate();
+  const gate = stateGate;
   let submitController = null;
   let definitions;
   let toolTable;
   let boundVerdict = null;
   let timeline = [];
+  let draftMutations = Promise.resolve();
   const activeTools = new Set(ALWAYS_AVAILABLE_TOOLS);
 
   const connectedGate = {
     getState: gate.getState,
-    async setDraft(code) {
-      const wasOpen = gate.getState().gateOpen;
-      const state = await gate.setDraft(code);
-      boundVerdict = null;
+    setDraft(code, { source = "tool" } = {}) {
+      const update = draftMutations.then(async () => {
+        const state = await gate.setDraft(code);
+        boundVerdict = null;
 
-      if (wasOpen) {
-        submitController.abort();
-        submitController = null;
-        activeTools.delete("submit_report");
-        eventBus.emit("surface", {
-          change: "revoked",
-          tool: "submit_report",
-          reason: "repro edited",
-          at: Date.now(),
+        if (submitController !== null) {
+          submitController.abort();
+          submitController = null;
+          activeTools.delete("submit_report");
+          eventBus.emit("surface", {
+            change: "revoked",
+            tool: "submit_report",
+            reason: "repro edited",
+            at: Date.now(),
+          });
+        }
+        eventBus.emit("draft", {
+          reproSha256: state.draftSha,
+          length: state.draft.length,
+          source,
         });
-      }
-      eventBus.emit("draft", {
-        reproSha256: state.draftSha,
-        length: state.draft.length,
+        return state;
       });
-      return state;
+      draftMutations = update.catch(() => {});
+      return update;
     },
     onVerdict(verdict) {
       const wasOpen = gate.getState().gateOpen;
@@ -311,8 +317,10 @@ export function createSurface({
 
       eventBus.emit("run", { verdict });
       timeline = [...timeline, { at, event: "run", detail: verdict.reason }];
-      if (!wasOpen && state.gateOpen) {
+      if (state.gateOpen && verdict.reproSha256 === state.draftSha) {
         boundVerdict = verdict;
+      }
+      if (!wasOpen && state.gateOpen) {
         submitController = new AbortController();
         modelContext.registerTool(toolTable.submit_report.definition, {
           signal: submitController.signal,
@@ -322,6 +330,17 @@ export function createSurface({
           change: "registered",
           tool: "submit_report",
           reason: "differential green",
+          at: Date.now(),
+        });
+      } else if (wasOpen && !state.gateOpen) {
+        boundVerdict = null;
+        submitController?.abort();
+        submitController = null;
+        activeTools.delete("submit_report");
+        eventBus.emit("surface", {
+          change: "revoked",
+          tool: "submit_report",
+          reason: "differential no longer green",
           at: Date.now(),
         });
       }

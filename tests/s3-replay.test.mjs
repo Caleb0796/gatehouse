@@ -75,6 +75,17 @@ test("compares verdicts and bundle hashes without treating timing as drift", () 
   assert.equal(runsMatch(fixture.runs, current), false);
 });
 
+test("rejects missing, unknown, or duplicate build lanes", () => {
+  const duplicateRecorded = [fixture.runs[0], structuredClone(fixture.runs[0])];
+  const duplicateCurrent = [fixture.runs[0], structuredClone(fixture.runs[0])];
+  const unknownCurrent = structuredClone(fixture.runs);
+  unknownCurrent[1].version = "other";
+
+  assert.equal(runsMatch(duplicateRecorded, duplicateCurrent), false);
+  assert.equal(runsMatch(fixture.runs.slice(0, 1), fixture.runs.slice(0, 1)), false);
+  assert.equal(runsMatch(fixture.runs, unknownCurrent), false);
+});
+
 test("renders recorded and current runs in a green matching frame", async () => {
   const document = fakeDocument();
   const root = new Element(document, "section");
@@ -115,4 +126,15 @@ test("defines visible green and yellow replay frames in an external stylesheet",
   );
   assert.match(styles, /\.replay-result\.consistent[\s\S]*border-color: #2e7d32/);
   assert.match(styles, /\.replay-result\.changed[\s\S]*border-color: #b7791f/);
+});
+
+test("allows long SHA and log values to shrink and wrap inside both replay columns", async () => {
+  const styles = await readFile(
+    new URL("../src/inbox/replay.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(styles, /grid-template-columns: repeat\(auto-fit, minmax\(min\(16rem, 100%\), 1fr\)\)/);
+  assert.match(styles, /\.replay-columns > section,[\s\S]*\.replay-columns dd \{[\s\S]*min-width: 0/);
+  assert.match(styles, /\.replay-columns dd \{[\s\S]*overflow-wrap: anywhere/);
+  assert.match(styles, /\.replay-columns dd \{[\s\S]*white-space: pre-wrap/);
 });

@@ -24,15 +24,19 @@ export function createGate() {
   }
 
   function onVerdict(verdict) {
-    if (
-      verdict.green === true &&
-      verdict.reproSha256 === state.draftSha &&
-      (!state.gateOpen || state.boundSha !== state.draftSha)
-    ) {
+    if (verdict.reproSha256 !== state.draftSha) return getState();
+
+    if (verdict.green === true) {
       state = {
         ...state,
         boundSha: state.draftSha,
         gateOpen: true,
+      };
+    } else {
+      state = {
+        ...state,
+        boundSha: null,
+        gateOpen: false,
       };
     }
     return getState();

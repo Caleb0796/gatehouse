@@ -58,6 +58,19 @@ test("rejects compressed payloads above 64KB", async () => {
   assert.deepEqual(await decodeReceipt(`#a=${payload}`), { error: "receipt payload exceeds 64KB" });
 });
 
+test("rejects a compression bomb above the decompressed 64KB limit", async () => {
+  const artifact = await validArtifact();
+  artifact.repro = "a".repeat(70 * 1024);
+  artifact.reproSha256 = await sha256Hex(artifact.repro);
+  const compressed = deflateRawSync(JSON.stringify(artifact));
+  assert.ok(compressed.byteLength < 64 * 1024);
+
+  assert.deepEqual(await encodeReceipt(artifact), { download: JSON.stringify(artifact) });
+  assert.deepEqual(await decodeReceipt(`#a=${base64Url(compressed)}`), {
+    error: "receipt payload exceeds 64KB",
+  });
+});
+
 test("returns an error instead of throwing for a damaged payload", async () => {
   const result = await decodeReceipt("#a=bm90LWRlZmxhdGU");
   assert.deepEqual(result, { error: "receipt payload is invalid" });
@@ -67,6 +80,26 @@ test("rejects an artifact with a missing field", async () => {
   const artifact = await validArtifact();
   delete artifact.issueUrl;
   const payload = base64Url(deflateRawSync(JSON.stringify(artifact)));
+  assert.deepEqual(await decodeReceipt(`#a=${payload}`), {
+    error: "receipt artifact does not match the required schema",
+  });
+});
+
+test("rejects receipts without exactly one bad and one good run", async () => {
+  const artifact = await validArtifact();
+  artifact.runs[1] = structuredClone(artifact.runs[0]);
+  const payload = base64Url(deflateRawSync(JSON.stringify(artifact)));
+
+  assert.deepEqual(await decodeReceipt(`#a=${payload}`), {
+    error: "receipt artifact does not match the required schema",
+  });
+});
+
+test("rejects receipts whose claimed build hashes differ from run evidence", async () => {
+  const artifact = await validArtifact();
+  artifact.badSha256 = "c".repeat(64);
+  const payload = base64Url(deflateRawSync(JSON.stringify(artifact)));
+
   assert.deepEqual(await decodeReceipt(`#a=${payload}`), {
     error: "receipt artifact does not match the required schema",
   });

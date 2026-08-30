@@ -8,7 +8,8 @@ Use this sheet for the ten unattended judge-path rehearsals and the two clean-pr
 - Copy the demo prompt and give it to the agent without adding instructions mid-run.
 - Observe three `write_repro` / `run_repro` attempts and the tool lifecycle in the timeline.
 - Confirm the final differential is bad-build fail plus good-build pass, then confirm `submit_report` appears.
-- Sign and submit as the human, open the inbox, and replay the report to the same differential.
+- Select **Approve & save locally**, open the inbox, and replay the report to the same differential.
+- Confirm the page says that local approval is unauthenticated, does not verify identity, is not cryptographic, and can be activated by automation.
 - Open the receipt and confirm the reproduction hash check is shown.
 
 Target: at least 9 of 10 unattended runs pass. Record every attempt, including aborted or fallback runs.
@@ -57,7 +58,7 @@ Both unfamiliar-machine runs must pass before the final demo is considered ready
 Follow this order. Record the original failure and every fallback in the run table.
 
 1. **Retry with a revised prompt.** Keep the environment and build fixed, change only the prompt, assign a new prompt-version label, and restart from a fresh page load. If the full path passes, use the revised prompt for later rehearsals.
-2. **Switch to simulated mode.** If the revised prompt still fails, open the deterministic simulated-agent path. Confirm the page visibly labels it as simulated mode, then run the same three-attempt, gate, sign, inbox, replay, and receipt sequence.
+2. **Switch to simulated mode.** If the revised prompt still fails, open the deterministic simulated-agent path. Confirm the page visibly labels it as simulated mode, then run the same three-attempt, gate, local approval, inbox, replay, and receipt sequence.
 3. **Play the video.** If simulated mode cannot complete, play the public narrated demo video. Confirm it is under three minutes, audible, and viewable without signing in before relying on it.
 
 Do not skip directly to a later fallback because it worked in a previous run. A fallback demonstrates the product path but does not convert the original unattended run into a pass.

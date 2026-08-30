@@ -7,7 +7,7 @@
   "badSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "goodSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "repro": "const r = demoLib.add(2, 2);\nassert(r === 4, \"add(2,2) should be 4, got \" + r);",
-  "reproSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "reproSha256": "42476e1cc8385371c800a438601d7257aaa47ce93ca62682e19c1695dc7677c8",
   "runs": [
     {
       "version": "bad",

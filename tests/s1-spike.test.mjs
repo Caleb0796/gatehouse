@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { isAllowedHost } from "../scripts/dev-server.mjs";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -8,6 +9,38 @@ test("S1 page keeps scripts external under production CSP", async () => {
   const page = await read("../dev/s1.html");
   assert.match(page, /<script type="module" src="\/src\/sandbox\/s1-dev\.js"><\/script>/);
   assert.doesNotMatch(page, /<script(?:\s[^>]*)?>\s*[^<\s]/);
+});
+
+test("development server serves the production CSP on loopback only", async () => {
+  const server = await read("../scripts/dev-server.mjs");
+
+  assert.match(server, /const HOST = "127\.0\.0\.1"/);
+  assert.match(server, /createGatehouseServer\(\)\.listen\([\s\S]*PORT,[\s\S]*HOST,/);
+  assert.match(server, /Content-Security-Policy/);
+  assert.match(server, /X-Content-Type-Options/);
+  assert.match(server, /relative\(ROOT, fp\)/);
+  assert.match(server, /part\.startsWith\("\."\)/);
+  assert.match(server, /writeHead\(403, BASE_HEADERS\)/);
+  assert.match(server, /writeHead\(404, BASE_HEADERS\)/);
+});
+
+test("development server rejects DNS-rebinding Host values", () => {
+  assert.equal(isAllowedHost("127.0.0.1:8080"), true);
+  assert.equal(isAllowedHost("localhost:8080"), true);
+  assert.equal(isAllowedHost("127.0.0.1"), true);
+  assert.equal(isAllowedHost("localhost"), true);
+  assert.equal(isAllowedHost("attacker.example"), false);
+  assert.equal(isAllowedHost("127.0.0.1.attacker.example:8080"), false);
+  assert.equal(isAllowedHost(undefined), false);
+});
+
+test("deployment header check enforces CSP, no-store, and nosniff", async () => {
+  const checker = await read("../scripts/check-headers.sh");
+
+  assert.match(checker, /Content-Security-Policy mismatch/);
+  assert.match(checker, /Cache-Control mismatch/);
+  assert.match(checker, /X-Content-Type-Options mismatch/);
+  assert.match(checker, /Origin-Agent-Cluster opts out/);
 });
 
 test("SYNC-0 harness preserves the opaque iframe and termination invariants", async () => {

@@ -37,6 +37,46 @@ if [ "$actual_csp" != "$EXPECTED_CSP" ]; then
   exit 1
 fi
 
+actual_cache_control=$(printf '%s\n' "$final_headers" | awk '
+  {
+    name = $0
+    sub(/:.*/, "", name)
+    if (tolower(name) == "cache-control") {
+      value = $0
+      sub(/^[^:]*:[ \t]*/, "", value)
+      sub(/[ \t]*$/, "", value)
+      print tolower(value)
+    }
+  }
+')
+
+if [ "$actual_cache_control" != "no-store" ]; then
+  echo "Cache-Control mismatch" >&2
+  echo "expected: no-store" >&2
+  echo "actual:   ${actual_cache_control:-<missing>}" >&2
+  exit 1
+fi
+
+actual_content_type_options=$(printf '%s\n' "$final_headers" | awk '
+  {
+    name = $0
+    sub(/:.*/, "", name)
+    if (tolower(name) == "x-content-type-options") {
+      value = $0
+      sub(/^[^:]*:[ \t]*/, "", value)
+      sub(/[ \t]*$/, "", value)
+      print tolower(value)
+    }
+  }
+')
+
+if [ "$actual_content_type_options" != "nosniff" ]; then
+  echo "X-Content-Type-Options mismatch" >&2
+  echo "expected: nosniff" >&2
+  echo "actual:   ${actual_content_type_options:-<missing>}" >&2
+  exit 1
+fi
+
 oac_opt_out=$(printf '%s\n' "$final_headers" | awk '
   {
     name = $0

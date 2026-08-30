@@ -30,7 +30,7 @@ const descriptions = {
   request_human_review:
     "Signals the person at this page that the agent would like their attention on the current draft and its results — highlights the draft panel and shows an attention banner on this page so the person notices. Input: { note?: string }.",
   submit_report:
-    'Stages the verified reproduction and its differential evidence for review by the person at this page. Returns { status: "staged_awaiting_human_signature" }. Nothing is submitted anywhere until a person signs in the page UI.',
+    'Stages the verified reproduction and its differential evidence for local review. Returns { status: "staged_awaiting_local_approval" }. Nothing is sent anywhere; the browser UI can record an unauthenticated local approval that does not verify identity or provide a cryptographic signature.',
 };
 
 function setup(overrides = {}) {
@@ -209,13 +209,13 @@ test("submit_report stages only a SHA-bound draft", async () => {
 
   const result = await definitions.submit_report.execute({});
 
-  assert.deepEqual(result, { status: "staged_awaiting_human_signature" });
+  assert.deepEqual(result, { status: "staged_awaiting_local_approval" });
   assert.equal(calls.stages.length, 1);
   assert.equal(calls.stages[0].draftSha, draftSha);
   assert.equal(calls.stages[0].boundSha, draftSha);
 });
 
-function setupSurface(verdictForCode, windowObject) {
+function setupSurface(verdictForCode, windowObject, overrides = {}) {
   const registrations = [];
   const events = [];
   const stages = [];
@@ -239,9 +239,53 @@ function setupSurface(verdictForCode, windowObject) {
       },
     },
     windowObject,
+    ...overrides,
   });
   return { events, registrations, stages, surface };
 }
+
+test("draft mutations commit in invocation order across editor and tool sources", async () => {
+  let state = { draft: "", draftSha: null, boundSha: null, gateOpen: false };
+  const started = [];
+  const releases = [];
+  const gate = {
+    getState: () => ({ ...state }),
+    setDraft(code) {
+      started.push(code);
+      return new Promise(resolve => {
+        releases.push(() => {
+          state = {
+            draft: code,
+            draftSha: code.padEnd(64, "0").slice(0, 64),
+            boundSha: null,
+            gateOpen: false,
+          };
+          resolve({ ...state });
+        });
+      });
+    },
+    onVerdict: () => ({ ...state }),
+  };
+  const { events, surface } = setupSurface(() => ({}), undefined, { gate });
+
+  const editorWrite = surface.gate.setDraft("editor", { source: "editor" });
+  const toolWrite = surface.gate.setDraft("tool", { source: "tool" });
+  await Promise.resolve();
+  assert.deepEqual(started, ["editor"]);
+
+  releases.shift()();
+  await editorWrite;
+  await Promise.resolve();
+  assert.deepEqual(started, ["editor", "tool"]);
+
+  releases.shift()();
+  await toolWrite;
+  assert.equal(surface.gate.getState().draft, "tool");
+  assert.deepEqual(
+    events.filter(({ type }) => type === "draft").map(({ detail }) => detail.source),
+    ["editor", "tool"],
+  );
+});
 
 test("matching green registers submit_report with a signal and emits contract events", async () => {
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
@@ -259,7 +303,7 @@ test("matching green registers submit_report with a signal and emits contract ev
   assert.equal(registrations[4].options.signal.aborted, false);
   assert.deepEqual(events[0], {
     type: "draft",
-    detail: { reproSha256: written.reproSha256, length: 11 },
+    detail: { reproSha256: written.reproSha256, length: 11, source: "tool" },
   });
   assert.deepEqual(events[1], { type: "run", detail: { verdict } });
   assert.equal(events[2].type, "surface");
@@ -272,6 +316,42 @@ test("matching green registers submit_report with a signal and emits contract ev
       at: 0,
     },
   );
+});
+
+test("a repeated green run refreshes the evidence staged for the same draft", async () => {
+  let runNumber = 0;
+  const { stages, surface } = setupSurface((_code, reproSha256) => {
+    runNumber += 1;
+    return {
+      green: true,
+      reason: "REGRESSION_DEMONSTRATED",
+      reproSha256,
+      runs: [
+        {
+          version: "bad",
+          verdict: "fail",
+          logs: [`run ${runNumber}`],
+          durationMs: runNumber,
+          bundleSha256: target.badSha256,
+        },
+        {
+          version: "good",
+          verdict: "pass",
+          logs: [],
+          durationMs: runNumber,
+          bundleSha256: target.goodSha256,
+        },
+      ],
+    };
+  });
+  await surface.definitions.write_repro.execute({ code: "green repro" });
+  await surface.definitions.run_repro.execute({});
+  await surface.definitions.run_repro.execute({});
+
+  await surface.definitions.submit_report.execute({});
+
+  assert.equal(stages[0].runs[0].durationMs, 2);
+  assert.deepEqual(stages[0].runs[0].logs, ["run 2"]);
 });
 
 test("editing revokes submit_report and a later green run registers a fresh signal", async () => {
@@ -305,6 +385,100 @@ test("editing revokes submit_report and a later green run registers a fresh sign
   assert.equal(registrations.length, 6);
   assert.notEqual(registrations[5].options.signal, firstSignal);
   assert.equal(registrations[5].options.signal.aborted, false);
+});
+
+test("a draft update revokes submit_report registered while its hash is pending", async () => {
+  const firstSha = "a".repeat(64);
+  const secondSha = "b".repeat(64);
+  let state = {
+    draft: "first",
+    draftSha: firstSha,
+    boundSha: null,
+    gateOpen: false,
+  };
+  let releaseDraft;
+  const gate = {
+    getState: () => ({ ...state }),
+    setDraft(code) {
+      return new Promise(resolve => {
+        releaseDraft = () => {
+          state = {
+            draft: code,
+            draftSha: secondSha,
+            boundSha: null,
+            gateOpen: false,
+          };
+          resolve({ ...state });
+        };
+      });
+    },
+    onVerdict(verdict) {
+      if (verdict.green && verdict.reproSha256 === state.draftSha) {
+        state = { ...state, boundSha: state.draftSha, gateOpen: true };
+      }
+      return { ...state };
+    },
+  };
+  const windowObject = { location: { search: "?test=1" } };
+  const { registrations, surface } = setupSurface(
+    (_code, reproSha256) => ({
+      green: true,
+      reason: "REGRESSION_DEMONSTRATED",
+      reproSha256,
+    }),
+    windowObject,
+    { gate },
+  );
+
+  const pendingDraft = surface.gate.setDraft("second", { source: "editor" });
+  await Promise.resolve();
+  await surface.definitions.run_repro.execute({});
+  const submitSignal = registrations[4].options.signal;
+  assert.equal(submitSignal.aborted, false);
+
+  releaseDraft();
+  await pendingDraft;
+
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools()).some(
+      ({ name }) => name === "submit_report",
+    ),
+    false,
+  );
+});
+
+test("a later non-green run revokes submit_report for the same draft", async () => {
+  let green = true;
+  const windowObject = { location: { search: "?test=1" } };
+  const { events, registrations, surface } = setupSurface(
+    (_code, reproSha256) => ({
+      green,
+      reason: green ? "REGRESSION_DEMONSTRATED" : "PASS_BOTH",
+      reproSha256,
+    }),
+    windowObject,
+  );
+  await surface.definitions.write_repro.execute({ code: "nondeterministic repro" });
+  await surface.definitions.run_repro.execute({});
+  const submitSignal = registrations[4].options.signal;
+
+  green = false;
+  await surface.definitions.run_repro.execute({});
+
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools()).some(
+      ({ name }) => name === "submit_report",
+    ),
+    false,
+  );
+  const revoked = events.find(
+    ({ type, detail }) => type === "surface" && detail.reason === "differential no longer green",
+  );
+  assert.equal(revoked.detail.change, "revoked");
 });
 
 test("non-green runs emit run events without registering submit_report", async () => {
