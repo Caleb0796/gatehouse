@@ -7,9 +7,9 @@ Use this sheet for the ten unattended judge-path rehearsals and the two clean-pr
 - Open the live URL and confirm the environment banner is green.
 - Copy the demo prompt and give it to the agent without adding instructions mid-run.
 - Observe three `write_repro` / `run_repro` attempts and the tool lifecycle in the timeline.
-- Confirm the final differential is bad-build fail plus good-build pass, then confirm `submit_report` appears.
+- Confirm the final stable local differential is reported-build fail 5/5 plus reference-build pass 5/5 in-browser (client-side), then confirm `submit_report` appears.
 - Sign and submit as the human, open the inbox, and replay the report to the same differential.
-- Open the receipt and confirm the reproduction hash check is shown.
+- Open the receipt and confirm four distinct statuses are shown: repro source integrity is self-consistent; build provenance, independent runtime reproduction, and approver identity say `not verified` where no independent check occurred.
 
 Target: at least 9 of 10 unattended runs pass. Record every attempt, including aborted or fallback runs.
 
@@ -42,7 +42,7 @@ Run this process once on each of two machines that were not used to build Gateho
 4. Open the live URL directly in the new profile. Do not visit it first in another tab to warm its cache.
 5. Confirm the environment banner is green. If it is not, stop and enter the failure tree; do not silently change the environment.
 6. Run the complete pass criteria above with the selected prompt and no coaching.
-7. Close and reopen the receipt in the same clean profile, then confirm it remains readable and shows the reproduction hash check.
+7. Close and reopen the receipt in the same clean profile, then confirm it remains readable and keeps the four claims separate, with `not verified` on claims that lack an independent check.
 8. Record the result and first failure point. After recording, close all windows for the temporary profile and remove that profile through the browser UI.
 
 | Machine | Date/time | Machine and OS | Browser/version | Agent/model | Network | Prompt version | Result | Failure point / notes |
@@ -60,7 +60,7 @@ Follow this order. Record the original failure and every fallback in the run tab
 2. **Switch to simulated mode.** If the revised prompt still fails, open the deterministic simulated-agent path. Confirm the page visibly labels it as simulated mode, then run the same three-attempt, gate, sign, inbox, replay, and receipt sequence.
 3. **Play the video.** If simulated mode cannot complete, play the public narrated demo video. Confirm it is under three minutes, audible, and viewable without signing in before relying on it.
 
-Do not skip directly to a later fallback because it worked in a previous run. A fallback demonstrates the product path but does not convert the original unattended run into a pass.
+Do not skip directly to a later fallback because it worked in a previous run. A fallback can show the product path but does not convert the original unattended run into a pass.
 
 ## Final readiness check
 
