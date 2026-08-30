@@ -1,4 +1,5 @@
 import { bus } from "../shared/bus.js";
+import { assertArtifactSize } from "./artifact.js";
 
 function revoked(eventBus, at) {
   eventBus.emit("surface", {
@@ -37,6 +38,7 @@ export function signArtifact({
     signedAt: at,
     ua: userAgent(),
   };
+  assertArtifactSize(artifact);
   eventBus.emit("signed", { artifact });
   return { artifact };
 }

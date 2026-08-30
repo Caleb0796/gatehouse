@@ -14,22 +14,27 @@ const target = {
   issueUrl: null,
   kind: "seed",
 };
-const runs = [
-  {
-    version: "bad",
+const samples = {
+  bad: Array.from({ length: 5 }, (_, index) => ({
     verdict: "fail",
-    logs: ["ReproAssertionError: regression"],
-    durationMs: 12,
+    logs: [
+      `bad ${index} ${"x".repeat(250)}`,
+      "two",
+      "three",
+      "four",
+      "five",
+      "discarded",
+    ],
+    durationMs: 12 + index,
     bundleSha256: target.badSha256,
-  },
-  {
-    version: "good",
+  })),
+  good: Array.from({ length: 5 }, (_, index) => ({
     verdict: "pass",
     logs: [],
-    durationMs: 10,
+    durationMs: 10 + index,
     bundleSha256: target.goodSha256,
-  },
-];
+  })),
+};
 
 function recordingBus() {
   const events = [];
@@ -46,14 +51,22 @@ async function staged() {
   const state = await gate.setDraft("assert(add(2, 2) === 4)");
   gate.onVerdict({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256: state.draftSha,
-    runs,
+    repeats: 5,
+    samples,
   });
   const artifactDraft = createArtifactDraft({
     target,
     gateState: gate.getState(),
-    verdict: { runs },
+    verdict: {
+      green: true,
+      reason: "STABLE_LOCAL_DIFFERENTIAL",
+      stable: true,
+      repeats: 5,
+      samples,
+    },
     timeline: [{ at: "2026-08-29T20:00:00.000Z", event: "staged", detail: "" }],
   });
   return { gate, artifactDraft };
@@ -76,19 +89,26 @@ test("signed artifacts contain every SubmissionArtifact field", async () => {
     "badVersion",
     "goodSha256",
     "goodVersion",
+    "green",
     "issueUrl",
     "library",
+    "reason",
+    "repeats",
     "repro",
     "reproSha256",
-    "runs",
+    "samples",
     "signedAt",
+    "stable",
     "targetId",
     "targetKind",
     "timeline",
     "ua",
     "v",
   ]);
-  assert.equal(artifact.v, 1);
+  assert.equal(artifact.v, 2);
+  assert.equal(artifact.reason, "STABLE_LOCAL_DIFFERENTIAL");
+  assert.equal(artifact.repeats, 5);
+  assert.equal(artifact.stable, true);
   assert.equal(artifact.targetKind, "seed");
   assert.equal(artifact.issueUrl, null);
   assert.equal(artifact.signedAt, "2026-08-29T20:01:00.000Z");
@@ -107,8 +127,57 @@ test("artifact repro and all pinned hashes match the staged evidence", async () 
   });
 
   assert.equal(artifact.reproSha256, gate.getState().draftSha);
-  assert.equal(artifact.badSha256, artifact.runs[0].bundleSha256);
-  assert.equal(artifact.goodSha256, artifact.runs[1].bundleSha256);
+  assert.equal(artifact.badSha256, artifact.samples.bad[0].bundleSha256);
+  assert.equal(artifact.goodSha256, artifact.samples.good[0].bundleSha256);
+});
+
+test("artifact keeps every sample and clamps each sample's logs", async () => {
+  const { artifactDraft } = await staged();
+
+  assert.equal(artifactDraft.samples.bad.length, 5);
+  assert.equal(artifactDraft.samples.good.length, 5);
+  assert.equal(artifactDraft.samples.bad[0].logs.length, 5);
+  assert.equal(artifactDraft.samples.bad[0].logs[0].length, 200);
+  assert.equal(samples.bad[0].logs.length, 6);
+  assert.ok(new TextEncoder().encode(JSON.stringify(artifactDraft)).byteLength <= 32 * 1024);
+});
+
+test("artifact rejects serialized evidence above 32KB", async () => {
+  const gate = createGate();
+  const state = await gate.setDraft("assert(add(2, 2) === 4)");
+
+  assert.throws(
+    () => createArtifactDraft({
+      target,
+      gateState: state,
+      verdict: {
+        green: true,
+        reason: "STABLE_LOCAL_DIFFERENTIAL",
+        stable: true,
+        repeats: 5,
+        samples,
+      },
+      timeline: [{ at: "2026-08-29T20:00:00.000Z", event: "run", detail: "é".repeat(17_000) }],
+    }),
+    /32KB size limit/,
+  );
+});
+
+test("signing cannot push the final artifact above 32KB", async () => {
+  const { gate, artifactDraft } = await staged();
+  const eventBus = recordingBus();
+
+  assert.throws(
+    () => signArtifact({
+      artifactDraft,
+      gateState: gate.getState(),
+      eventBus,
+      now: () => new Date("2026-08-29T20:01:00.000Z"),
+      userAgent: () => "é".repeat(17_000),
+    }),
+    /32KB size limit/,
+  );
+  assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
 });
 
 test("editing after staging makes the click-time SHA check refuse signing", async () => {

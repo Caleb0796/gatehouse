@@ -203,7 +203,8 @@ test("submit_report stages only a SHA-bound draft", async () => {
   const { draftSha } = await gate.setDraft("verified repro");
   gate.onVerdict({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256: draftSha,
   });
 
@@ -246,7 +247,8 @@ function setupSurface(verdictForCode, windowObject) {
 test("matching green registers submit_report with a signal and emits contract events", async () => {
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
   }));
 
@@ -277,7 +279,8 @@ test("matching green registers submit_report with a signal and emits contract ev
 test("editing revokes submit_report and a later green run registers a fresh signal", async () => {
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
   }));
   await surface.definitions.write_repro.execute({ code: "first" });
@@ -341,7 +344,8 @@ test("test hook mirrors dynamic availability and executes the shared table", asy
   const windowObject = { location: { search: "?mock=green&test=1" } };
   const { surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
   }), windowObject);
   const hook = windowObject.__gatehouseTestHook;
@@ -384,24 +388,24 @@ test("test hook is absent unless test equals one", () => {
 test("submit_report emits and hands off the staged artifact draft", async () => {
   const { events, stages, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
-    reason: "REGRESSION_DEMONSTRATED",
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
-    runs: [
-      {
-        version: "bad",
+    repeats: 5,
+    samples: {
+      bad: [{
         verdict: "fail",
         logs: [],
         durationMs: 12,
         bundleSha256: target.badSha256,
-      },
-      {
-        version: "good",
+      }],
+      good: [{
         verdict: "pass",
         logs: [],
         durationMs: 10,
         bundleSha256: target.goodSha256,
-      },
-    ],
+      }],
+    },
   }));
   await surface.definitions.write_repro.execute({ code: "verified repro" });
   await surface.definitions.run_repro.execute({});
@@ -411,7 +415,7 @@ test("submit_report emits and hands off the staged artifact draft", async () => 
   const event = events.find(({ type }) => type === "staged");
   assert.equal(event.detail.artifactDraft.repro, "verified repro");
   assert.equal(event.detail.artifactDraft.reproSha256, surface.gate.getState().draftSha);
-  assert.equal(event.detail.artifactDraft.runs[0].bundleSha256, target.badSha256);
+  assert.equal(event.detail.artifactDraft.samples.bad[0].bundleSha256, target.badSha256);
   assert.equal(stages.length, 1);
   assert.equal(stages[0], event.detail.artifactDraft);
 });

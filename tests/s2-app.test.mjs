@@ -65,7 +65,7 @@ test("demo E2E marker requires all three verdicts, the dynamic tool, and staging
   const body = { dataset: {} };
   trackDemoE2E(eventBus, body);
 
-  for (const reason of ["FAIL_BOTH", "PASS_BOTH", "REGRESSION_DEMONSTRATED"]) {
+  for (const reason of ["FAIL_BOTH", "PASS_BOTH", "STABLE_LOCAL_DIFFERENTIAL"]) {
     eventBus.emit("run", { verdict: { reason } });
   }
   eventBus.emit("surface", { change: "registered", tool: "submit_report" });
@@ -76,7 +76,7 @@ test("demo E2E marker requires all three verdicts, the dynamic tool, and staging
   assert.equal(body.dataset.e2e, "pass");
   assert.equal(
     body.dataset.e2eRuns,
-    "FAIL_BOTH,PASS_BOTH,REGRESSION_DEMONSTRATED",
+    "FAIL_BOTH,PASS_BOTH,STABLE_LOCAL_DIFFERENTIAL",
   );
 });
 
