@@ -22,7 +22,7 @@ const target = {
 
 const descriptions = {
   get_target_info:
-    "Returns the current verification target: library name, reported-bad and last-good versions, their bundle SHA-256 hashes, and the execution model for repro code (an assert(condition, message) helper is provided; a repro demonstrates a bug by making an assertion that fails on the buggy build and passes on the good one).",
+    "Returns the single-target prototype configuration: library name, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
   write_repro:
     "Stores a draft reproduction script for the target library. Input: { code: string } — plain JavaScript executed against the library bundle in an isolated sandbox; use the provided assert(condition, message) to state the expected correct behavior. Replaces any previous draft and returns the draft's SHA-256.",
   run_repro:
@@ -30,7 +30,7 @@ const descriptions = {
   request_human_review:
     "Signals the person at this page that the agent would like their attention on the current draft and its results — highlights the draft panel and shows an attention banner on this page so the person notices. Input: { note?: string }.",
   submit_report:
-    'Stages the verified reproduction and its differential evidence for review by the person at this page. Returns { status: "staged_awaiting_human_signature" }. Nothing is submitted anywhere until a person signs in the page UI.',
+    'Stages the reproduction and its client-side N/N differential evidence for review by the person at this page. Independent replay and bundle provenance are not verified. Returns { status: "staged_awaiting_human_signature" }. Nothing is shared anywhere until a person signs in the page UI.',
 };
 
 function setup(overrides = {}) {
@@ -98,6 +98,20 @@ test("definitions use the frozen names, descriptions, schemas, and annotations",
   }
   assert.deepEqual(definitions.get_target_info.annotations, { readOnlyHint: true });
   assert.deepEqual(definitions.run_repro.annotations, { untrustedContentHint: true });
+});
+
+test("tool copy limits claims to client-side evidence", async () => {
+  const { definitions } = setup();
+  const info = await definitions.get_target_info.execute({});
+  const copy = [
+    info.executionModel,
+    ...Object.values(definitions).map(({ description }) => description),
+  ].join(" ");
+
+  assert.doesNotMatch(copy, /last-good|demonstrat/i);
+  assert.match(copy, /single-target prototype/);
+  assert.match(copy, /comparison-good/);
+  assert.match(copy, /not verified/);
 });
 
 test("registration exposes the four always-available tools but not submit_report", () => {
@@ -204,6 +218,7 @@ test("submit_report stages only a SHA-bound draft", async () => {
   gate.onVerdict({
     green: true,
     reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256: draftSha,
   });
 
@@ -247,6 +262,7 @@ test("matching green registers submit_report with a signal and emits contract ev
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
     reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
   }));
 
@@ -278,6 +294,7 @@ test("editing revokes submit_report and a later green run registers a fresh sign
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
     reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
   }));
   await surface.definitions.write_repro.execute({ code: "first" });
@@ -305,6 +322,71 @@ test("editing revokes submit_report and a later green run registers a fresh sign
   assert.equal(registrations.length, 6);
   assert.notEqual(registrations[5].options.signal, firstSignal);
   assert.equal(registrations[5].options.signal.aborted, false);
+});
+
+test("a later non-green verdict aborts the registered submit_report tool", async () => {
+  let green = true;
+  const windowObject = { location: { search: "?test=1" } };
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
+    green,
+    reason: green ? "STABLE_LOCAL_DIFFERENTIAL" : "UNSTABLE",
+    stable: green,
+    reproSha256,
+  }), windowObject);
+  await surface.definitions.write_repro.execute({ code: "flaky repro" });
+  await surface.definitions.run_repro.execute({});
+  const submitSignal = registrations[4].options.signal;
+  green = false;
+
+  await surface.definitions.run_repro.execute({});
+
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools())
+      .some(({ name }) => name === "submit_report"),
+    false,
+  );
+  assert.equal(
+    events.some(
+      ({ type, detail }) => type === "surface"
+        && detail.change === "revoked"
+        && detail.reason === "differential not green",
+    ),
+    true,
+  );
+});
+
+test("a stale non-green verdict cannot revoke a newer green generation", async () => {
+  const pending = [];
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => (
+    new Promise((resolve) => pending.push({ resolve, reproSha256 }))
+  ));
+  await surface.definitions.write_repro.execute({ code: "overlapping runs repro" });
+  const oldRun = surface.definitions.run_repro.execute({});
+  const latestRun = surface.definitions.run_repro.execute({});
+
+  pending[1].resolve({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    reproSha256: pending[1].reproSha256,
+  });
+  await latestRun;
+  const submitSignal = registrations[4].options.signal;
+  pending[0].resolve({
+    green: false,
+    reason: "UNSTABLE",
+    stable: false,
+    reproSha256: pending[0].reproSha256,
+  });
+
+  await oldRun;
+
+  assert.equal(surface.gate.getState().gateOpen, true);
+  assert.equal(surface.gate.getState().tainted, false);
+  assert.equal(submitSignal.aborted, false);
+  assert.equal(events.filter(({ type }) => type === "run").length, 1);
 });
 
 test("non-green runs emit run events without registering submit_report", async () => {
@@ -342,6 +424,7 @@ test("test hook mirrors dynamic availability and executes the shared table", asy
   const { surface } = setupSurface((_code, reproSha256) => ({
     green: true,
     reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
   }), windowObject);
   const hook = windowObject.__gatehouseTestHook;
@@ -385,23 +468,23 @@ test("submit_report emits and hands off the staged artifact draft", async () => 
   const { events, stages, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
     reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
     reproSha256,
-    runs: [
-      {
-        version: "bad",
+    repeats: 5,
+    samples: {
+      bad: [{
         verdict: "fail",
         logs: [],
         durationMs: 12,
         bundleSha256: target.badSha256,
-      },
-      {
-        version: "good",
+      }],
+      good: [{
         verdict: "pass",
         logs: [],
         durationMs: 10,
         bundleSha256: target.goodSha256,
-      },
-    ],
+      }],
+    },
   }));
   await surface.definitions.write_repro.execute({ code: "verified repro" });
   await surface.definitions.run_repro.execute({});
@@ -411,7 +494,7 @@ test("submit_report emits and hands off the staged artifact draft", async () => 
   const event = events.find(({ type }) => type === "staged");
   assert.equal(event.detail.artifactDraft.repro, "verified repro");
   assert.equal(event.detail.artifactDraft.reproSha256, surface.gate.getState().draftSha);
-  assert.equal(event.detail.artifactDraft.runs[0].bundleSha256, target.badSha256);
+  assert.equal(event.detail.artifactDraft.samples.bad[0].bundleSha256, target.badSha256);
   assert.equal(stages.length, 1);
   assert.equal(stages[0], event.detail.artifactDraft);
 });
