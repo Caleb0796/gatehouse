@@ -22,10 +22,10 @@ Expected view: the target, editor, run panel, and tool timeline are all visible;
 
 1. Watch the agent call `get_target_info` to read the pinned target and execution model.
 2. On round one, watch `write_repro` and `run_repro` produce `FAIL_BOTH`. Point to the result, then to the still-closed tool surface.
-3. On round two, watch the revised repro produce `PASS_BOTH`. Point out that a passing script alone does not demonstrate the regression.
-4. On round three, watch the final repro fail on the reported-bad build and pass on the last-good build.
+3. On round two, watch the revised repro produce `PASS_BOTH`. Point out that a passing script alone is not a differential.
+4. On round three, watch the final repro fail 5/5 on the reported build and pass 5/5 on the reference build in-browser (client-side).
 
-Expected view: all three attempts appear in order on the timeline, and only the third result is a green differential.
+Expected view: all three attempts appear in order on the timeline, and only the third result is a stable local differential.
 
 ### 0:55–1:15 — Show the tool surface change
 
@@ -68,14 +68,14 @@ Perform this check against the exact public commit and deployed build that will 
 ### Answer 1 — Why is this a strong fit for WebMCP?
 
 - [ ] The opening curl, Django, and OpenSSF statements have submission-ready sources and still use their accurate status and dates.
-- [ ] The deployed page visibly starts without `submit_report` and registers it only after a bad-fail/good-pass differential.
+- [ ] The deployed page visibly starts without `submit_report` and registers it only after a stable local differential: reported build fail 5/5 and reference build pass 5/5 in-browser (client-side).
 - [ ] The final copy describes a missing tool, not a disabled button or a rejected call.
 - [ ] The sandbox execution observed in the submitted build is client-side; remove or narrow the cost claim if any submitted path depends on hosted execution.
 - [ ] The prompt-injection sentence is limited to the registration-state mechanism and does not imply protection from a malicious client.
 
 ### Answer 2 — How does it create a better user experience?
 
-- [ ] A signed item actually reaches the inbox with repro code, pinned bad/good evidence, and logs.
+- [ ] A signed item actually reaches the inbox with repro code, pinned reported/reference evidence, and logs.
 - [ ] **Replay** runs successfully from the inbox against the same target manifest.
 - [ ] Adopt-as-test is visible and produces a usable test file; delete that sentence if the control or output is absent.
 - [ ] The page shows distinct feedback for `PASS_BOTH` and `FAIL_BOTH`; make the quoted feedback match the final UI text exactly.
@@ -94,11 +94,11 @@ Perform this check against the exact public commit and deployed build that will 
 - [ ] The submitted source uses `document.modelContext.registerTool()` at the top level, and the stated browser/environment versions match the final README.
 - [ ] The initial tool names, annotations, and count exactly match the tool table in the submitted commit.
 - [ ] The production run uses an opaque-origin sandboxed iframe with a nested Worker, no sandbox network access, and Worker termination for timeout.
-- [ ] A green result means bad build `fail` plus good build `pass` in the shipped judge function.
+- [ ] A green result means the reported build fails 5/5 and the reference build passes 5/5 in-browser (client-side) in the shipped judge function.
 - [ ] `submit_report` is bound to the exact repro SHA-256, and an edit revokes its registration through `AbortSignal` in the deployed build.
 - [ ] The final tool descriptions keep workflow ordering out of their text.
 - [ ] The human-signature sentence matches the final UI and artifact behavior.
-- [ ] If T14 was cut, delete the entire GitHub Action sentence. If it shipped, retain only behavior demonstrated end to end against the public demo-target repository.
+- [ ] If T14 was cut, delete the entire GitHub Action sentence. If it shipped, retain only behavior observed end to end against the public demo-target repository.
 
 ### Final copy check
 

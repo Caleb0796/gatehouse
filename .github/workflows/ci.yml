@@ -7,5 +7,56 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - run: if [ -L node_modules ]; then unlink node_modules; fi
       - run: npm ci
       - run: npm test
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: if [ -L node_modules ]; then unlink node_modules; fi
+      - run: npm ci
+      - name: Start production-CSP dev server
+        run: |
+          node scripts/dev-server.mjs > /tmp/gatehouse-dev-server.log 2>&1 &
+          echo "$!" > /tmp/gatehouse-dev-server.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/gatehouse-dev-server.log >&2
+          exit 1
+      - name: Detect Google Chrome
+        id: chrome
+        run: |
+          if command -v google-chrome > /dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip native WebMCP evals without Chrome
+        if: steps.chrome.outputs.available != 'true'
+        run: echo "::notice title=WebMCP eval skipped::Google Chrome is unavailable on this runner"
+      - name: Require Chrome for logic evals
+        if: steps.chrome.outputs.available != 'true'
+        run: |
+          echo "Google Chrome is required for the logic eval harness." >&2
+          exit 1
+      - name: Run logic evals
+        if: steps.chrome.outputs.available == 'true'
+        run: node evals/run-evals.mjs --url http://127.0.0.1:8080/ --tier logic
+      - name: Run native WebMCP evals
+        if: steps.chrome.outputs.available == 'true'
+        run: node evals/run-evals.mjs --url http://127.0.0.1:8080/ --tier webmcp
+      - name: Check production response headers
+        run: scripts/check-headers.sh http://127.0.0.1:8080/
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -f /tmp/gatehouse-dev-server.pid ]; then
+            kill "$(cat /tmp/gatehouse-dev-server.pid)" || true
+          fi

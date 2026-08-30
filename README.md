@@ -1,8 +1,8 @@
 # Gatehouse
 
-Gatehouse is an agent-native door for open-source bug reports. A reporter's agent must produce a reproduction that fails on a pinned reported-bad build and passes on a pinned last-good build before the page exposes `submit_report`.
+Gatehouse is an agent-native door and single-target prototype for pinned browser-JS regressions. A reporter's agent must produce a reproduction that fails on every run against the reported build and passes on every run against the reference build before the page exposes `submit_report`.
 
-In January 2026, curl closed its six-year bug bounty after a flood of AI-generated reports, while other projects published policies against the same problem. curl is evidence of the pain—not Gatehouse's target user; this v1 focuses on browser-runnable npm libraries and turns a good-faith agent's effort into executed, replayable regression evidence.
+In January 2026, curl closed its six-year bug bounty after a flood of AI-generated reports, while other projects published policies against the same problem. curl is evidence of the pain—not Gatehouse's target user; this v1 prototype pins one browser-runnable npm target and turns a good-faith agent's effort into executed, replayable regression evidence.
 
 ## Live URL
 
@@ -28,7 +28,7 @@ Then use one of three environment paths:
 
 1. **ChatGPT desktop browser:** open Settings → Browser → Permissions, enable site tools, use GPT-5.6 Sol or Terra (Luna does not expose WebMCP), press Cmd+Shift+B, and enter the full `http://localhost:8080` URL.
 2. **Local Google Chrome:** start a separate test profile with `open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" http://localhost:8080`.
-3. **Simulated demo:** open `http://localhost:8080/?demo=1` and use the visibly labeled simulated mode when WebMCP is unavailable. It follows the same tool table and fixed three-round demonstration path.
+3. **Simulated demo:** open `http://localhost:8080/?demo=1` and use the visibly labeled simulated mode when WebMCP is unavailable. It follows the same tool table and fixed three-round demo path.
 
 `localhost` and `127.0.0.1` are secure contexts for this workflow; LAN and `.local` addresses do not expose WebMCP. Keep the development server running so local testing uses the same CSP as deployment.
 
@@ -43,13 +43,15 @@ Results will be filled from the 11-case Chrome harness when that work lands. Log
 
 ## How it works
 
-The top-level page initially registers four tools with `document.modelContext.registerTool()`: `get_target_info`, `write_repro`, `run_repro`, and `request_human_review`. Reproduction code runs without network access against pinned bad and good library bundles inside a Worker nested in an opaque-origin sandboxed iframe. The page terminates the Worker on timeout and accepts a green differential only when the bad build fails and the good build passes.
+The top-level page initially registers four tools with `document.modelContext.registerTool()`: `get_target_info`, `write_repro`, `run_repro`, and `request_human_review`. Reproduction code runs without network access against pinned reported and reference library bundles inside a Worker nested in an opaque-origin sandboxed iframe. The page terminates each fresh Worker on timeout and accepts a stable local differential only when the reported build fails 5/5 and the reference build passes 5/5 in-browser (client-side).
 
-A green run registers `submit_report` and binds it to the SHA-256 of the exact reproduction. Editing the reproduction aborts that tool registration. Submission still requires a visible human signature; the resulting artifact carries the reproduction, pinned versions and bundle hashes, both run results, logs, and a timestamp. A signed report can be replayed against the same manifest and shared as a self-contained receipt.
+A stable local differential registers `submit_report` and binds it to the SHA-256 of the exact reproduction. Editing the reproduction aborts that tool registration. Submission still requires a visible human signature; the resulting artifact carries the reproduction, pinned versions and bundle hashes, all run results, logs, and a timestamp. A signed report can be replayed against the same manifest and shared as a self-contained receipt.
 
 ## Threat model
 
 Gatehouse is designed for honest-but-lazy agents: it raises the cost of low-effort, non-reproducing reports and gives good-faith reporters fast feedback. It does not defend against a malicious client, and it does not claim that browser-side evidence establishes trust on its own. Server-side re-execution is an upgrade path.
+
+The gate is a nondeterminism filter, not an anti-forgery mechanism. Repeated runs can reject flaky evidence; they cannot stop a deterministic script from fabricating a verdict. Results are local self-attestation by the reporter until an independent service re-runs them.
 
 Reproduction code and the harness execute with equal authority inside the same Worker. A malicious reproduction could theoretically forge its own verdict; hiding the Worker's reply channel and validating message envelopes only raises the cost of that forgery. The iframe-to-parent channel separately checks the source window, readiness, envelope shape, and first result for each run to reduce interference from unrelated page content, not to make malicious reproduction code trustworthy.
 
@@ -79,6 +81,15 @@ npm test
 
 Gatehouse doesn't replace your issue tracker — it mints evidence that travels through it.
 
-Reporters paste a Gatehouse receipt into the project's ordinary GitHub issue form. The receipt carries the exact reproduction and pinned differential results, can be replayed locally, and can be adopted as a regression test without moving maintainers to another inbox.
+Reporters can manually share a Gatehouse receipt through the project's ordinary GitHub issue form. The receipt carries the exact reproduction and pinned differential results, can be replayed locally, and can be adopted as a regression test without moving maintainers to another inbox.
+
+A receipt keeps four claims separate:
+
+| Claim | Receipt status without independent re-execution |
+| --- | --- |
+| Repro source integrity | Repro source hash is self-consistent |
+| Build provenance | `not verified` |
+| Runtime reproduction | Reproduced 5/5 in-browser (client-side); independent reproduction `not verified` |
+| Approver identity | Local approval recorded; identity `not verified` |
 
 > Integration package pending: the required receipt field for a GitHub issue form and the no-receipt bot reply will be added from the maintainer-lane handoff.
