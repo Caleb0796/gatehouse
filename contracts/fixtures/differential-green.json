@@ -1,6 +1,84 @@
 {
   "green": true,
   "reason": "STABLE_LOCAL_DIFFERENTIAL",
+  "stable": true,
+  "repeats": 5,
+  "samples": {
+    "bad": [
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4"],
+        "durationMs": 12,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4"],
+        "durationMs": 11,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4"],
+        "durationMs": 10,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4"],
+        "durationMs": 9,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4"],
+        "durationMs": 8,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "good": [
+      {
+        "version": "good",
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 10,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 9,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 8,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 7,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 6,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
   "runs": [
     {
       "version": "bad",

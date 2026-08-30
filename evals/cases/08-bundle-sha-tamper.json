@@ -7,8 +7,8 @@
   },
   "actions": [
     { "op": "interceptBundle", "version": "bad", "mutation": "append-byte" },
-    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" } },
-    { "op": "executeTool", "name": "run_repro", "saveAs": "result" }
+    { "op": "probeFreshTarget", "saveAs": "result" },
+    { "op": "getTools", "saveAs": "tools" }
   ],
   "expect": {
     "runRejected": true,

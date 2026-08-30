@@ -1,16 +1,16 @@
 # Evaluation results
 
-> WebMCP cases use native `document.modelContext`; logic cases use the `?test=1` hook. Both tiers execute the real sandbox.
+> WebMCP cases use native `document.modelContext`; logic cases use the `?test=1` hook. Sandbox cases execute the real runner; `retry-until-lucky` injects a deterministic non-green→green runner sequence to verify taint behavior through the native tool surface.
 
-- URL: `http://localhost:8080/?test=1`
+- URL: `http://localhost:8096/?test=1`
 - Chrome: `Chrome/152.0.7977.64`
-- Generated: `2026-08-30T00:57:59.893Z`
+- Generated: `2026-08-30T06:34:40.945Z`
 
 | Tier | Passed | Run | Pass rate |
 | --- | ---: | ---: | ---: |
-| webmcp | 4 | 4 | 100% |
+| webmcp | 6 | 6 | 100% |
 | logic | 7 | 7 | 100% |
-| overall | 11 | 11 | 100% |
+| overall | 13 | 13 | 100% |
 
 | Case | Tier | Result | Detail |
 | --- | --- | --- | --- |
@@ -25,3 +25,5 @@
 | baseline-tools | webmcp | pass | expectations met |
 | receipt-round-trip | logic | pass | expectations met |
 | inverted | logic | pass | expectations met |
+| flaky-random | webmcp | pass | expectations met |
+| retry-until-lucky | webmcp | pass | expectations met |

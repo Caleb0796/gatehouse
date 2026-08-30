@@ -159,6 +159,53 @@ test("artifact repro and all pinned hashes match the staged evidence", async () 
   assert.equal(artifact.goodSha256, artifact.samples.good[0].bundleSha256);
 });
 
+test("artifact creation rejects any sample whose bundle hash drifts", async () => {
+  const gate = createGate();
+  const state = await gate.setDraft("assert(add(2, 2) === 4)");
+  const drifted = structuredClone(samples);
+  drifted.bad[4].bundleSha256 = target.goodSha256;
+
+  assert.throws(
+    () => createArtifactDraft({
+      target,
+      gateState: state,
+      verdict: {
+        green: true,
+        reason: "STABLE_LOCAL_DIFFERENTIAL",
+        stable: true,
+        repeats: 5,
+        samples: drifted,
+      },
+      timeline: [],
+    }),
+    /bad sample bundle SHA-256 does not match/,
+  );
+});
+
+test("signing rechecks every sample hash before storage", async () => {
+  const { gate, artifactDraft } = await staged();
+  const eventBus = recordingBus();
+  let storeCalls = 0;
+  artifactDraft.samples.good[2].bundleSha256 = target.badSha256;
+
+  await assert.rejects(
+    () => signArtifact({
+      artifactDraft,
+      gateState: gate.getState(),
+      eventBus,
+      now: () => new Date("2026-08-29T20:01:00.000Z"),
+      userAgent: () => "test-agent",
+      storeArtifact: async () => {
+        storeCalls += 1;
+        return { ok: true };
+      },
+    }),
+    /good sample bundle SHA-256 does not match/,
+  );
+  assert.equal(storeCalls, 0);
+  assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
+});
+
 test("artifact keeps every sample and clamps each sample's logs", async () => {
   const { artifactDraft } = await staged();
 
@@ -258,7 +305,7 @@ test("signing waits for inbox confirmation before showing success", async () => 
   const signing = button.click();
 
   assert.equal(button.disabled, true);
-  assert.equal(status.textContent, "未提交");
+  assert.equal(status.textContent, "待人工审阅");
   assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
 
   confirmStore({ ok: true });
@@ -268,6 +315,36 @@ test("signing waits for inbox confirmation before showing success", async () => 
   assert.equal(button.disabled, true);
   assert.equal(eventBus.events.filter(({ type }) => type === "signed").length, 1);
   dispose();
+});
+
+test("staging shows the exact artifact and evidence before enabling signature", async () => {
+  const { gate, artifactDraft } = await staged();
+  const eventBus = recordingBus();
+  const button = buttonStub();
+  const status = { textContent: "" };
+  const review = {
+    root: { hidden: true },
+    repro: { textContent: "" },
+    summary: { textContent: "" },
+  };
+  initSigning({
+    button,
+    status,
+    review,
+    getGateState: gate.getState,
+    eventBus,
+    storeArtifact: storeSuccessfully,
+  });
+
+  eventBus.emit("staged", { artifactDraft });
+
+  assert.equal(review.root.hidden, false);
+  assert.equal(review.repro.textContent, artifactDraft.repro);
+  assert.match(review.summary.textContent, new RegExp(artifactDraft.reproSha256));
+  assert.match(review.summary.textContent, /Reported build 1\.1\.0: 5\/5 failed/);
+  assert.match(review.summary.textContent, /Reference build 1\.0\.0: 5\/5 passed/);
+  assert.equal(status.textContent, "待人工审阅");
+  assert.equal(button.disabled, false);
 });
 
 test("storage failure keeps the staged artifact available for retry", async () => {

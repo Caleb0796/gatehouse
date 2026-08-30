@@ -46,8 +46,8 @@ jobs:
           import { chromium } from "playwright";
 
           const MAX_COMPRESSED_BYTES = 64 * 1024;
-          const MAX_DECOMPRESSED_BYTES = 1024 * 1024;
-          const VERIFIED_LABEL = "repro hash verified ✓";
+          const MAX_DECOMPRESSED_BYTES = 32 * 1024;
+          const VERIFIED_LABEL = "self-consistent ✓";
           const HEX_64 = /^[a-f0-9]{64}$/;
 
           function requireRecord(value, name) {
@@ -64,7 +64,7 @@ jobs:
 
           function validateArtifact(artifact) {
             requireRecord(artifact, "artifact");
-            assert.equal(artifact.v, 1, "artifact.v must be 1");
+            assert.equal(artifact.v, 2, "artifact.v must be 2");
             for (const field of ["targetId", "library", "badVersion", "goodVersion", "repro", "signedAt", "ua"]) {
               requireString(artifact[field], `artifact.${field}`);
             }
@@ -72,10 +72,43 @@ jobs:
             requireSha(artifact.goodSha256, "artifact.goodSha256");
             requireSha(artifact.reproSha256, "artifact.reproSha256");
             assert(new TextEncoder().encode(artifact.repro).byteLength <= 8192, "artifact.repro exceeds 8KB");
-            assert(Array.isArray(artifact.runs) && artifact.runs.length === 2, "artifact.runs must contain two runs");
+            assert.equal(artifact.green, true, "artifact must record a green differential");
+            assert.equal(artifact.reason, "STABLE_LOCAL_DIFFERENTIAL", "artifact reason is not stable");
+            assert.equal(artifact.stable, true, "artifact must record stable evidence");
+            assert.equal(artifact.repeats, 5, "artifact must record five repeats per build");
+            requireRecord(artifact.samples, "artifact.samples");
+            for (const [version, expectedVerdict, bundleSha256] of [
+              ["bad", "fail", artifact.badSha256],
+              ["good", "pass", artifact.goodSha256],
+            ]) {
+              const samples = artifact.samples[version];
+              assert(Array.isArray(samples), `artifact.samples.${version} must be an array`);
+              assert.equal(samples.length, artifact.repeats, `artifact.samples.${version} must contain five samples`);
+              for (const [index, sample] of samples.entries()) {
+                requireRecord(sample, `artifact.samples.${version}[${index}]`);
+                assert.equal(sample.verdict, expectedVerdict, `${version} sample ${index} verdict changed`);
+                requireSha(sample.bundleSha256, `${version} sample ${index} bundleSha256`);
+                assert.equal(sample.bundleSha256, bundleSha256, `${version} sample ${index} bundle hash changed`);
+                assert(Number.isFinite(sample.durationMs) && sample.durationMs >= 0, `${version} sample ${index} duration is invalid`);
+                assert(!Object.hasOwn(sample, "logs"), `${version} sample ${index} leaked logs into the public receipt`);
+              }
+            }
+            assert(!Object.hasOwn(artifact, "runs"), "artifact v2 must not use the v1 runs field");
             assert(Array.isArray(artifact.timeline), "artifact.timeline must be an array");
             assert(artifact.issueUrl === null || typeof artifact.issueUrl === "string", "artifact.issueUrl is invalid");
             assert(["real", "seed"].includes(artifact.targetKind), "artifact.targetKind is invalid");
+          }
+
+          function assertTargetMatchesArtifact(target, artifact) {
+            requireRecord(target, "target info");
+            assert.equal(target.targetId, artifact.targetId, "headless replay used a different target");
+            assert.equal(target.library, artifact.library, "headless replay library changed");
+            assert.equal(target.targetKind, artifact.targetKind, "headless replay target kind changed");
+            assert.equal(target.badVersion, artifact.badVersion, "headless replay reported-bad version changed");
+            assert.equal(target.goodVersion, artifact.goodVersion, "headless replay comparison version changed");
+            assert.equal(target.badSha256, artifact.badSha256, "headless replay bad bundle hash changed");
+            assert.equal(target.goodSha256, artifact.goodSha256, "headless replay good bundle hash changed");
+            assert.equal(target.issueUrl, artifact.issueUrl, "headless replay issue URL changed");
           }
 
           function runsByVersion(runs, name) {
@@ -84,7 +117,6 @@ jobs:
               requireRecord(run, `${name} run`);
               assert(["bad", "good"].includes(run.version), `${name} has an invalid run version`);
               assert(["pass", "fail", "error", "timeout"].includes(run.verdict), `${name} has an invalid verdict`);
-              requireSha(run.bundleSha256, `${name}.${run.version}.bundleSha256`);
               return [run.version, run];
             }));
             assert(indexed.bad && indexed.good, `${name} must have bad and good runs`);
@@ -116,16 +148,20 @@ jobs:
           const receiptPrefix = new URL("receipt.html#a=", configuredBase).href;
           const receiptOffset = process.env.COMMENT_BODY.indexOf(receiptPrefix);
           assert(receiptOffset >= 0, `comment must contain a receipt from ${configuredBase.origin}`);
-          const encoded = process.env.COMMENT_BODY
+          const receiptMatch = process.env.COMMENT_BODY
             .slice(receiptOffset + receiptPrefix.length)
-            .match(/^[A-Za-z0-9_-]+/)?.[0];
-          assert(encoded, "receipt fragment is missing or malformed");
-          const receiptUrl = new URL(`receipt.html#a=${encoded}`, configuredBase);
+            .match(/^([A-Za-z0-9_-]+)&h=([a-f0-9]{64})/);
+          assert(receiptMatch, "receipt fragment is missing or malformed");
+          const [, encoded, expectedReceiptSha256] = receiptMatch;
+          const receiptUrl = new URL(
+            `receipt.html#a=${encoded}&h=${expectedReceiptSha256}`,
+            configuredBase,
+          );
 
           const browser = await chromium.launch({
             channel: "chrome",
             headless: true,
-            args: ["--enable-features=WebMCP"],
+            args: ["--enable-features=WebMCPTesting"],
           });
 
           try {
@@ -137,8 +173,9 @@ jobs:
               { timeout: 15_000 },
             );
 
-            const artifact = await page.evaluate(async ({ maxCompressed, maxDecompressed }) => {
-              const encodedPayload = location.hash.match(/^#a=([A-Za-z0-9_-]+)$/)?.[1];
+            const decodedReceipt = await page.evaluate(async ({ maxCompressed, maxDecompressed }) => {
+              const params = new URLSearchParams(location.hash.slice(1));
+              const encodedPayload = params.get("a");
               if (!encodedPayload) throw new Error("receipt fragment is malformed");
               const padded = encodedPayload.replace(/-/g, "+").replace(/_/g, "/")
                 .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
@@ -156,7 +193,7 @@ jobs:
                 size += value.byteLength;
                 if (size > maxDecompressed) {
                   await reader.cancel();
-                  throw new Error("decompressed receipt exceeds 1MB");
+                  throw new Error("decompressed receipt exceeds 32KB");
                 }
                 chunks.push(value);
               }
@@ -166,53 +203,72 @@ jobs:
                 bytes.set(chunk, offset);
                 offset += chunk.byteLength;
               }
-              return JSON.parse(new TextDecoder().decode(bytes));
+              return {
+                artifact: JSON.parse(new TextDecoder().decode(bytes)),
+                expectedReceiptSha256: params.get("h"),
+              };
             }, {
               maxCompressed: MAX_COMPRESSED_BYTES,
               maxDecompressed: MAX_DECOMPRESSED_BYTES,
             });
 
+            const { artifact } = decodedReceipt;
             validateArtifact(artifact);
+            const receiptSha256 = createHash("sha256").update(JSON.stringify(artifact)).digest("hex");
+            assert.equal(
+              receiptSha256,
+              decodedReceipt.expectedReceiptSha256,
+              "receipt content hash does not match its public projection",
+            );
             const reproSha256 = createHash("sha256").update(artifact.repro).digest("hex");
             assert.equal(reproSha256, artifact.reproSha256, "receipt repro hash does not match its code");
 
-            const claimedRuns = runsByVersion(artifact.runs, "artifact.runs");
-            assert.equal(claimedRuns.bad.verdict, "fail", "receipt is not green on the bad build");
-            assert.equal(claimedRuns.good.verdict, "pass", "receipt is not green on the good build");
-            assert.equal(claimedRuns.bad.bundleSha256, artifact.badSha256, "receipt bad bundle hash is inconsistent");
-            assert.equal(claimedRuns.good.bundleSha256, artifact.goodSha256, "receipt good bundle hash is inconsistent");
-
             const replayUrl = new URL(configuredBase);
-            replayUrl.searchParams.set("test", "1");
             await page.goto(replayUrl.href, { waitUntil: "domcontentloaded" });
             await page.waitForFunction(
-              () => typeof window.__gatehouseTestHook?.executeTool === "function",
+              () => typeof document.modelContext?.getTools === "function"
+                && typeof document.modelContext?.executeTool === "function",
               null,
               { timeout: 15_000 },
             );
 
-            const replayValue = await page.evaluate(async (repro) => {
-              const hook = window.__gatehouseTestHook;
-              await hook.executeTool("write_repro", { code: repro });
-              return hook.executeTool("run_repro", {});
+            const replayValues = await page.evaluate(async (repro) => {
+              const api = document.modelContext;
+              const execute = async (name, args) => {
+                const tools = await api.getTools();
+                const tool = tools.find((candidate) => candidate.name === name);
+                if (!tool) throw new Error(`WebMCP tool not found: ${name}`);
+                const value = await api.executeTool(tool, JSON.stringify(args));
+                if (typeof value !== "string") {
+                  throw new TypeError("Native WebMCP executeTool must return a JSON string");
+                }
+                return JSON.parse(value);
+              };
+              const target = await execute("get_target_info", {});
+              const written = await execute("write_repro", { code: repro });
+              const replay = await execute("run_repro", {});
+              return { replay, target, written };
             }, artifact.repro);
-            const parsedReplay = parseToolValue(replayValue);
+            const target = parseToolValue(replayValues.target);
+            const written = parseToolValue(replayValues.written);
+            const parsedReplay = parseToolValue(replayValues.replay);
             const replay = parsedReplay?.differential ?? parsedReplay?.result ?? parsedReplay;
 
+            assertTargetMatchesArtifact(target, artifact);
+            requireRecord(written, "write result");
+            assert.equal(written.reproSha256, artifact.reproSha256, "headless replay used different repro code");
             requireRecord(replay, "replay result");
-            assert.equal(replay.green, true, "headless replay did not demonstrate a regression");
+            assert.equal(replay.green, true, "headless replay did not reproduce a stable local differential");
             assert.equal(replay.reason, "STABLE_LOCAL_DIFFERENTIAL", "headless replay reason changed");
-            assert.equal(replay.targetId, artifact.targetId, "headless replay used a different target");
-            assert.equal(replay.reproSha256, artifact.reproSha256, "headless replay used different repro code");
+            assert.equal(replay.stable, true, "headless replay was not stable");
+            assert.equal(replay.repeats, artifact.repeats, "headless replay repeat count changed");
 
             const replayRuns = runsByVersion(replay.runs, "replay.runs");
-            for (const version of ["bad", "good"]) {
-              assert.equal(replayRuns[version].verdict, claimedRuns[version].verdict, `${version} verdict changed`);
-              assert.equal(
-                replayRuns[version].bundleSha256,
-                claimedRuns[version].bundleSha256,
-                `${version} bundle hash changed`,
-              );
+            for (const [version, expectedVerdict] of [
+              ["bad", "fail"],
+              ["good", "pass"],
+            ]) {
+              assert.equal(replayRuns[version].verdict, expectedVerdict, `${version} verdict changed`);
             }
           } finally {
             await browser.close();

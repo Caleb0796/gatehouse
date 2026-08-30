@@ -66,7 +66,14 @@ export function createToolInvoker({ modelContext, getToolTable }) {
         // "UnknownError: Failed to parse input arguments". Measured 2026-08-29,
         // Chrome 152.0.7977.64.
         const raw = await modelContext.executeTool(tool, JSON.stringify(args ?? {}));
-        return typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (typeof raw !== "string") {
+          throw new TypeError("Native WebMCP executeTool must return a JSON string.");
+        }
+        try {
+          return JSON.parse(raw);
+        } catch (error) {
+          throw new TypeError("Native WebMCP executeTool returned invalid JSON.", { cause: error });
+        }
       },
     };
   }
@@ -99,7 +106,7 @@ export async function run(target, deps = {}) {
       { label: `${label}: write`, tool: "write_repro", args: { code: target.demoRepros[key] } },
       { label: `${label}: run`, tool: "run_repro", args: {} },
     ]),
-    { label: "Stage verified report", tool: "submit_report", args: {} },
+    { label: "Stage local evidence", tool: "submit_report", args: {} },
   ];
 
   const results = [];

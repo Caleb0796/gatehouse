@@ -12,7 +12,8 @@
   h2 { margin-top: 32px; border-bottom: 1px solid #374151; padding-bottom: 8px; }
   h3 { margin-top: 24px; }
   .guidance { color: #cbd5e1; }
-  .verification { margin: 24px 0; padding: 20px; border: 2px solid; border-radius: 12px; font-size: clamp(1.4rem, 5vw, 2.4rem); font-weight: 800; }
+  .claim-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 24px 0; }
+  .verification { margin: 0; padding: 16px; border: 2px solid; border-radius: 12px; font-size: 1rem; font-weight: 800; }
   .verified { border-color: #22c55e; background: #052e16; color: #86efac; }
   .unverified { border-color: #f59e0b; background: #451a03; color: #fcd34d; }
   .error { border-color: #ef4444; background: #450a0a; color: #fecaca; }
@@ -20,13 +21,16 @@
   dt { color: #94a3b8; font-weight: 700; }
   dd { margin: 0; overflow-wrap: anywhere; }
   .download { display: inline-block; margin-top: 24px; padding: 10px 16px; border-radius: 8px; background: #2563eb; color: white; font-weight: 700; text-decoration: none; }
+  .json-import { margin-top: 32px; padding: 20px; border: 1px solid #475569; border-radius: 12px; }
+  .json-import h2 { margin-top: 0; }
+  .import-status { min-height: 1.5em; color: #fcd34d; }
   @media (max-width: 600px) { dl { grid-template-columns: 1fr; } dd { margin-bottom: 8px; } }
 </style>
 </head>
 <body>
 <main id="receipt-root">
   <h1>Gatehouse receipt</h1>
-  <p class="guidance">Paste this link into your GitHub issue so maintainers can inspect the signed evidence.</p>
+  <p class="guidance">This page displays reporter-generated local evidence and its explicit verification limits.</p>
   <p>Loading receipt…</p>
 </main>
 <script type="module" src="/src/inbox/receipt-page.js"></script>

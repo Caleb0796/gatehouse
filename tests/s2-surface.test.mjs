@@ -22,7 +22,7 @@ const target = {
 
 const descriptions = {
   get_target_info:
-    "Returns the single-target prototype configuration: library name, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
+    "Returns the single-target prototype configuration: library name, target kind, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
   write_repro:
     "Stores a draft reproduction script for the target library. Input: { code: string } — plain JavaScript executed against the library bundle in an isolated sandbox; use the provided assert(condition, message) to state the expected correct behavior. Replaces any previous draft and returns the draft's SHA-256.",
   run_repro:
@@ -133,6 +133,7 @@ test("get_target_info returns the pinned target and rejects fields", async () =>
 
   assert.equal(result.targetId, target.id);
   assert.equal(result.library, target.library);
+  assert.equal(result.targetKind, target.kind);
   assert.equal(result.badVersion, target.badVersion);
   assert.equal(result.goodVersion, target.goodVersion);
   assert.equal(result.badSha256, target.badSha256);
@@ -177,7 +178,7 @@ test("run_repro rejects fields, reports a missing draft, and anchors targetId", 
   await definitions.write_repro.execute({ code: "assert(value === 1)" });
   const result = await definitions.run_repro.execute({});
 
-  assert.deepEqual(result, { green: false, reason: "FAIL_BOTH" });
+  assert.deepEqual(result, { green: false, reason: "FAIL_BOTH", runs: [] });
   assert.deepEqual(calls.runs, [
     { code: "assert(value === 1)", options: { targetId: target.id } },
   ]);
@@ -258,6 +259,58 @@ function setupSurface(verdictForCode, windowObject) {
   return { events, registrations, stages, surface };
 }
 
+test("run_repro returns a bounded summary while staging keeps every sample", async () => {
+  const makeSamples = (version, verdict, bundleSha256) => (
+    Array.from({ length: 5 }, (_, index) => ({
+      version,
+      verdict,
+      durationMs: 10 + index,
+      logs: [
+        `${version}-${index}-old`,
+        `${version}-${index}-one-${"x".repeat(240)}`,
+        `${version}-${index}-two-${"y".repeat(240)}`,
+        `${version}-${index}-three-${"z".repeat(240)}`,
+      ],
+      bundleSha256,
+    }))
+  );
+  const samples = {
+    bad: makeSamples("bad", "fail", target.badSha256),
+    good: makeSamples("good", "pass", target.goodSha256),
+  };
+  const { events, stages, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    repeats: 5,
+    samples,
+    reproSha256,
+  }));
+  await surface.definitions.write_repro.execute({ code: "bounded output repro" });
+
+  const summary = await surface.definitions.run_repro.execute({});
+
+  assert.deepEqual(
+    Object.keys(summary).sort(),
+    ["green", "reason", "repeats", "runs", "stable"],
+  );
+  assert.equal("samples" in summary, false);
+  assert.equal(summary.runs.length, 2);
+  assert.deepEqual(summary.runs.map(({ version }) => version), ["bad", "good"]);
+  assert.equal(summary.runs.every(({ logs }) => logs.length <= 3), true);
+  assert.equal(summary.runs.every(({ logs }) => logs.every(log => log.length <= 200)), true);
+  assert.ok(JSON.stringify(summary).length < 1500);
+
+  const internalVerdict = events.find(({ type }) => type === "run").detail.verdict;
+  assert.equal(internalVerdict.samples.bad.length, 5);
+  assert.equal(internalVerdict.samples.good.length, 5);
+
+  await surface.definitions.submit_report.execute({});
+
+  assert.equal(stages[0].samples.bad.length, 5);
+  assert.equal(stages[0].samples.good.length, 5);
+});
+
 test("matching green registers submit_report with a signal and emits contract events", async () => {
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
     green: true,
@@ -277,7 +330,9 @@ test("matching green registers submit_report with a signal and emits contract ev
     type: "draft",
     detail: { reproSha256: written.reproSha256, length: 11 },
   });
-  assert.deepEqual(events[1], { type: "run", detail: { verdict } });
+  assert.equal(verdict.green, true);
+  assert.equal(events[1].type, "run");
+  assert.equal(events[1].detail.verdict.reproSha256, written.reproSha256);
   assert.equal(events[2].type, "surface");
   assert.deepEqual(
     { ...events[2].detail, at: 0 },
@@ -324,6 +379,105 @@ test("editing revokes submit_report and a later green run registers a fresh sign
   assert.equal(registrations[5].options.signal.aborted, false);
 });
 
+test("an over-8KB UI draft clears evidence and revokes submit_report", async () => {
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    reproSha256,
+  }));
+  await surface.definitions.write_repro.execute({ code: "green repro" });
+  await surface.definitions.run_repro.execute({});
+  const submitSignal = registrations[4].options.signal;
+
+  const state = await surface.gate.setDraft("é".repeat(4097));
+
+  assert.equal(state.invalid, true);
+  assert.equal(surface.gate.getState().draft, "");
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(submitSignal.aborted, true);
+  assert.deepEqual(events.at(-1), {
+    type: "draft",
+    detail: {
+      reproSha256: surface.gate.getState().draftSha,
+      length: 4097,
+      invalid: true,
+    },
+  });
+});
+
+test("concurrent edits revoke an open submit tool idempotently", async () => {
+  const windowObject = { location: { search: "?test=1" } };
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    reproSha256,
+  }), windowObject);
+  await surface.definitions.write_repro.execute({ code: "opened draft" });
+  await surface.definitions.run_repro.execute({});
+  const submitSignal = registrations[4].options.signal;
+
+  const edits = await Promise.allSettled([
+    surface.definitions.write_repro.execute({ code: "first concurrent edit" }),
+    surface.definitions.write_repro.execute({ code: "second concurrent edit" }),
+  ]);
+
+  assert.deepEqual(edits.map(({ status }) => status), ["fulfilled", "fulfilled"]);
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools())
+      .some(({ name }) => name === "submit_report"),
+    false,
+  );
+  assert.equal(
+    events.filter(
+      ({ type, detail }) => type === "surface"
+        && detail.change === "revoked"
+        && detail.reason === "repro edited",
+    ).length,
+    1,
+  );
+});
+
+test("an edit still revokes a submit tool opened while its hash is pending", async () => {
+  const pending = [];
+  const windowObject = { location: { search: "?test=1" } };
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => (
+    new Promise(resolve => pending.push({ reproSha256, resolve }))
+  ), windowObject);
+  const first = await surface.definitions.write_repro.execute({ code: "old draft" });
+  const run = surface.definitions.run_repro.execute({});
+  const edit = surface.definitions.write_repro.execute({ code: "new draft" });
+
+  pending[0].resolve({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    reproSha256: first.reproSha256,
+  });
+  await run;
+  const submitSignal = registrations[4].options.signal;
+  await edit;
+
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools())
+      .some(({ name }) => name === "submit_report"),
+    false,
+  );
+  assert.equal(
+    events.filter(
+      ({ type, detail }) => type === "surface"
+        && detail.change === "revoked"
+        && detail.reason === "repro edited",
+    ).length,
+    1,
+  );
+});
+
 test("a later non-green verdict aborts the registered submit_report tool", async () => {
   let green = true;
   const windowObject = { location: { search: "?test=1" } };
@@ -357,36 +511,42 @@ test("a later non-green verdict aborts the registered submit_report tool", async
   );
 });
 
-test("a stale non-green verdict cannot revoke a newer green generation", async () => {
+test("concurrent runs are rejected so every accepted verdict affects the gate", async () => {
   const pending = [];
   const { events, registrations, surface } = setupSurface((_code, reproSha256) => (
     new Promise((resolve) => pending.push({ resolve, reproSha256 }))
   ));
   await surface.definitions.write_repro.execute({ code: "overlapping runs repro" });
-  const oldRun = surface.definitions.run_repro.execute({});
-  const latestRun = surface.definitions.run_repro.execute({});
+  const firstRun = surface.definitions.run_repro.execute({});
+  const concurrentRun = await surface.definitions.run_repro.execute({});
 
-  pending[1].resolve({
+  assert.deepEqual(concurrentRun, {
+    code: "RUN_IN_PROGRESS",
+    message: "A differential run is already in progress.",
+  });
+  assert.equal(pending.length, 1);
+  pending[0].resolve({
     green: true,
     reason: "STABLE_LOCAL_DIFFERENTIAL",
     stable: true,
-    reproSha256: pending[1].reproSha256,
+    reproSha256: pending[0].reproSha256,
   });
-  await latestRun;
+  await firstRun;
   const submitSignal = registrations[4].options.signal;
-  pending[0].resolve({
+
+  const laterRun = surface.definitions.run_repro.execute({});
+  pending[1].resolve({
     green: false,
     reason: "UNSTABLE",
     stable: false,
-    reproSha256: pending[0].reproSha256,
+    reproSha256: pending[1].reproSha256,
   });
+  await laterRun;
 
-  await oldRun;
-
-  assert.equal(surface.gate.getState().gateOpen, true);
-  assert.equal(surface.gate.getState().tainted, false);
-  assert.equal(submitSignal.aborted, false);
-  assert.equal(events.filter(({ type }) => type === "run").length, 1);
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(surface.gate.getState().tainted, true);
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(events.filter(({ type }) => type === "run").length, 2);
 });
 
 test("non-green runs emit run events without registering submit_report", async () => {
@@ -400,7 +560,9 @@ test("non-green runs emit run events without registering submit_report", async (
   const verdict = await surface.definitions.run_repro.execute({});
 
   assert.equal(registrations.length, 4);
-  assert.deepEqual(events.at(-1), { type: "run", detail: { verdict } });
+  assert.equal(verdict.green, false);
+  assert.equal(events.at(-1).type, "run");
+  assert.equal(events.at(-1).detail.verdict.reason, "FAIL_BOTH");
 });
 
 test("getToolTable exposes each frozen definition with its shared executor", () => {
@@ -472,18 +634,18 @@ test("submit_report emits and hands off the staged artifact draft", async () => 
     reproSha256,
     repeats: 5,
     samples: {
-      bad: [{
+      bad: Array.from({ length: 5 }, () => ({
         verdict: "fail",
         logs: [],
         durationMs: 12,
         bundleSha256: target.badSha256,
-      }],
-      good: [{
+      })),
+      good: Array.from({ length: 5 }, () => ({
         verdict: "pass",
         logs: [],
         durationMs: 10,
         bundleSha256: target.goodSha256,
-      }],
+      })),
     },
   }));
   await surface.definitions.write_repro.execute({ code: "verified repro" });
@@ -497,4 +659,45 @@ test("submit_report emits and hands off the staged artifact draft", async () => 
   assert.equal(event.detail.artifactDraft.samples.bad[0].bundleSha256, target.badSha256);
   assert.equal(stages.length, 1);
   assert.equal(stages[0], event.detail.artifactDraft);
+});
+
+test("hundreds of runs keep the staged timeline bounded and explicit about truncation", async () => {
+  const samples = {
+    bad: Array.from({ length: 5 }, () => ({
+      verdict: "fail",
+      logs: [],
+      durationMs: 12,
+      bundleSha256: target.badSha256,
+    })),
+    good: Array.from({ length: 5 }, () => ({
+      verdict: "pass",
+      logs: [],
+      durationMs: 10,
+      bundleSha256: target.goodSha256,
+    })),
+  };
+  const { stages, surface } = setupSurface((_code, reproSha256) => ({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    reproSha256,
+    repeats: 5,
+    samples,
+  }));
+  await surface.definitions.write_repro.execute({ code: "repeated green repro" });
+
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    await surface.definitions.run_repro.execute({});
+  }
+  const submitted = await surface.definitions.submit_report.execute({});
+
+  assert.deepEqual(submitted, { status: "staged_awaiting_human_signature" });
+  assert.equal(stages.length, 1);
+  assert.equal(stages[0].timeline.length, 51);
+  assert.deepEqual(stages[0].timeline[0], {
+    at: stages[0].timeline[1].at,
+    event: "history-truncated",
+    detail: "Earlier timeline events omitted.",
+  });
+  assert.equal(stages[0].timeline.at(-1).event, "staged");
 });

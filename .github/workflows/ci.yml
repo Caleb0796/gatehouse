@@ -12,12 +12,15 @@ jobs:
       - run: npm test
   eval:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: if [ -L node_modules ]; then unlink node_modules; fi
       - run: npm ci
+      - name: Install Playwright Chromium for logic evals
+        run: npx playwright install --with-deps chromium
       - name: Start production-CSP dev server
         run: |
           node scripts/dev-server.mjs > /tmp/gatehouse-dev-server.log 2>&1 &
@@ -30,6 +33,8 @@ jobs:
           done
           cat /tmp/gatehouse-dev-server.log >&2
           exit 1
+      - name: Run logic evals in Playwright Chromium
+        run: node evals/run-evals.mjs --url http://127.0.0.1:8080/ --tier logic --browser chromium
       - name: Detect Google Chrome
         id: chrome
         run: |
@@ -41,14 +46,6 @@ jobs:
       - name: Skip native WebMCP evals without Chrome
         if: steps.chrome.outputs.available != 'true'
         run: echo "::notice title=WebMCP eval skipped::Google Chrome is unavailable on this runner"
-      - name: Require Chrome for logic evals
-        if: steps.chrome.outputs.available != 'true'
-        run: |
-          echo "Google Chrome is required for the logic eval harness." >&2
-          exit 1
-      - name: Run logic evals
-        if: steps.chrome.outputs.available == 'true'
-        run: node evals/run-evals.mjs --url http://127.0.0.1:8080/ --tier logic
       - name: Run native WebMCP evals
         if: steps.chrome.outputs.available == 'true'
         run: node evals/run-evals.mjs --url http://127.0.0.1:8080/ --tier webmcp

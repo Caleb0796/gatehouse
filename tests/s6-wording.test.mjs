@@ -2,18 +2,36 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 
-const bannedClaims = /machine-verified|impossible without|security gate|last-good|maintainers receive|REGRESSION_DEMONSTRATED|\bdemonstrat(?:e|es|ed|ing|ion|ions)\b/i;
+const retiredReason = ["REGRESSION", "DEMONSTRATED"].join("_");
+const bannedClaims = new RegExp(
+  `machine-verified|verified report|impossible without|security gate|last-good|maintainers receive|${retiredReason}|\\bdemonstrat(?:e|es|ed|ing|ion|ions)\\b`,
+  "i",
+);
 
-async function documentation() {
-  const docFiles = (await readdir(new URL("../docs/", import.meta.url)))
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => new URL(`../docs/${name}`, import.meta.url));
-  const files = [new URL("../README.md", import.meta.url), ...docFiles];
+async function filesUnder(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (await Promise.all(entries.map(entry => {
+    const url = new URL(entry.name, directory);
+    return entry.isDirectory() ? filesUnder(new URL(`${entry.name}/`, directory)) : [url];
+  }))).flat();
+}
+
+async function publicCopy() {
+  const docFiles = (await filesUnder(new URL("../docs/", import.meta.url)))
+    .filter(file => file.pathname.endsWith(".md"));
+  const sourceFiles = (await filesUnder(new URL("../src/", import.meta.url)))
+    .filter(file => /\.(?:html|js|md|mjs)$/.test(file.pathname));
+  const files = [
+    new URL("../README.md", import.meta.url),
+    new URL("../package.json", import.meta.url),
+    ...docFiles,
+    ...sourceFiles,
+  ];
   return (await Promise.all(files.map((file) => readFile(file, "utf8")))).join("\n");
 }
 
-test("public documentation follows claim discipline", async () => {
-  const copy = await documentation();
+test("public documentation and source copy follow claim discipline", async () => {
+  const copy = await publicCopy();
 
   assert.doesNotMatch(copy, bannedClaims);
   assert.match(copy, /single-target prototype/i);

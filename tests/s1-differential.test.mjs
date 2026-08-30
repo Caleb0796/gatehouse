@@ -35,9 +35,15 @@ test("judgePair classifies all 16 verdict combinations", async t => {
   }
 });
 
-test("judge rejects mixed bad samples as unstable", () => {
-  const bad = [...runs("fail", 3), ...runs("pass", 2)];
-  assert.deepEqual(judge(bad, runs("pass")), { green: false, reason: "UNSTABLE" });
+test("judge rejects a batch whose first pair alone would look green", () => {
+  const bad = [{ verdict: "fail", logs: [] }, ...runs("pass", 1), ...runs("fail", 3)];
+  const good = runs("pass");
+
+  assert.deepEqual(judgePair(bad[0], good[0]), {
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+  });
+  assert.deepEqual(judge(bad, good), { green: false, reason: "UNSTABLE" });
 });
 
 test("judge accepts five matching failures against five passes", () => {

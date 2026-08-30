@@ -1,4 +1,5 @@
 const EVENT_TYPES = ["surface", "run", "draft", "staged", "signed"];
+const MAX_VISIBLE_ENTRIES = 50;
 
 const EVENT_LABELS = {
   surface: "Tool surface",
@@ -18,7 +19,7 @@ function describe(type, detail = {}) {
   }
   if (type === "run") {
     const verdict = detail.verdict || {};
-    return verdict.green ? "Regression demonstrated · green" : `Not green · ${verdict.reason || "unknown verdict"}`;
+    return verdict.green ? "Stable local differential · green" : `Not green · ${verdict.reason || "unknown verdict"}`;
   }
   if (type === "draft") {
     return `${detail.length ?? 0} characters · sha256 ${shortHash(detail.reproSha256)}`;
@@ -36,6 +37,16 @@ function eventTime(type, detail, now) {
     dateTime: date.toISOString(),
     label: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
   };
+}
+
+function trimTimeline(list, doc) {
+  if (list.children.length <= MAX_VISIBLE_ENTRIES) return;
+  const retained = Array.from(list.children).slice(-(MAX_VISIBLE_ENTRIES - 1));
+  const marker = doc.createElement("li");
+  marker.className = "timeline__item timeline__item--history-truncated";
+  marker.dataset.event = "history-truncated";
+  marker.textContent = "Earlier activity omitted.";
+  list.replaceChildren(marker, ...retained);
 }
 
 export function init(rootEl, deps = {}) {
@@ -94,6 +105,7 @@ export function init(rootEl, deps = {}) {
     body.append(title, summary, time);
     item.append(marker, body);
     list.append(item);
+    trimTimeline(list, doc);
   }));
 
   return () => unsubscribe.forEach(off => off());

@@ -58,32 +58,54 @@ test.after(async () => {
   server?.kill();
 });
 
-test("runDifferential filters flaky scripts and keeps the pinned qs regression stable", { timeout: 120_000 }, async () => {
+test("runDifferential samples stochastic scripts and the gate keeps tainted drafts closed", { timeout: 120_000 }, async () => {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${port}/index.html`);
 
   const result = await page.evaluate(async () => {
     const { loadTarget, runDifferential } = await import("/src/sandbox/runner.js");
-    const countGreen = async code => {
+    const { createGate } = await import("/src/surface/gate.js");
+    const exerciseStochastic = async code => {
+      const gate = createGate();
+      await gate.setDraft(code);
       let green = 0;
+      let sawNonGreen = false;
+      let reopenedAfterTaint = false;
       for (let attempt = 0; attempt < 30; attempt += 1) {
         const verdict = await runDifferential(code, { targetId: "qs-500" });
         if (verdict.green) green += 1;
+        else sawNonGreen = true;
+        const state = gate.onVerdict(verdict, gate.beginRun());
+        if (sawNonGreen && state.gateOpen) reopenedAfterTaint = true;
+        assertSamples(verdict);
       }
-      return green;
+      return { green, sawNonGreen, reopenedAfterTaint, gate: gate.getState() };
+    };
+    const assertSamples = verdict => {
+      if (
+        verdict.repeats !== 5 ||
+        verdict.samples.bad.length !== 5 ||
+        verdict.samples.good.length !== 5
+      ) {
+        throw new Error("runDifferential did not return five samples per build");
+      }
     };
 
     const { manifest } = await loadTarget("qs-500");
-    const randomGreen = await countGreen("assert(Math.random() < 0.5)");
-    const clockGreen = await countGreen("assert(Date.now() % 2 === 0)");
+    const random = await exerciseStochastic("assert(Math.random() < 0.5)");
+    const clock = await exerciseStochastic("assert(Date.now() % 2 === 0)");
     const real = await runDifferential(manifest.demoRepros.real, { targetId: "qs-500" });
 
-    return { randomGreen, clockGreen, real };
+    return { random, clock, real };
   });
 
   await page.close();
-  assert.equal(result.randomGreen, 0);
-  assert.equal(result.clockGreen, 0);
+  for (const stochastic of [result.random, result.clock]) {
+    assert.equal(stochastic.sawNonGreen, true);
+    assert.equal(stochastic.reopenedAfterTaint, false);
+    assert.equal(stochastic.gate.gateOpen, false);
+    assert.equal(stochastic.gate.tainted, true);
+  }
   assert.equal(result.real.green, true);
   assert.equal(result.real.stable, true);
   assert.equal(result.real.reason, "STABLE_LOCAL_DIFFERENTIAL");

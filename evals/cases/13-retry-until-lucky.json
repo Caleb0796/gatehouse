@@ -1,0 +1,23 @@
+{
+  "id": "retry-until-lucky",
+  "tier": "webmcp",
+  "setup": {
+    "reset": true,
+    "runnerMock": "taint-then-green",
+    "repro": "assert(true, \"deterministic taint probe\");"
+  },
+  "actions": [
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" }, "saveAs": "draft" },
+    { "op": "repeatRunAndObserveTools", "count": 20, "saveAs": "observation" }
+  ],
+  "expect": {
+    "attempts": 20,
+    "everOpened": false,
+    "sawNonGreen": true,
+    "sawGreenAfterNonGreen": true,
+    "openedAfterNonGreen": false,
+    "submitVisibleCount": 0,
+    "gateOpen": false
+  },
+  "mustFail": true
+}

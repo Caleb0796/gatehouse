@@ -13,7 +13,7 @@ In January 2026, curl closed its six-year bug bounty after a flood of AI-generat
 1. 打开 live URL → 环境横幅确认绿色。
 2. 点「Copy demo prompt」→ 粘给 agent。
 3. 看 agent：get_target_info → 三轮 write_repro/run_repro（时间线上工具面变化可见）→ 绿灯 → submit_report 浮现。
-4. 人点 Sign & submit → 切收件箱 → Replay 同差分 → （稍后 Action 徽章亮）。
+4. 人点 Sign & submit → 切收件箱 → Replay 同差分 → 审阅公开回执内容后手动分享。
 
 ## Run it
 
@@ -34,12 +34,12 @@ Then use one of three environment paths:
 
 ## Evals
 
-Results will be filled from the 11-case Chrome harness when that work lands. Logic-tier cases use the page's explicit `?test=1` hook; WebMCP-tier cases exercise actual tool discovery and execution, so the two rates remain separate.
+The 13-case harness passed in the environment below. Logic-tier cases use the page's explicit `?test=1` hook; WebMCP-tier cases exercise native tool discovery and JSON-string tool execution, so the two rates remain separate. The stochastic case records the observed result rather than claiming a probability filter is an absolute guarantee; the retry case injects a deterministic non-green→green sequence and confirms that the tainted draft stays closed through the native tool surface. A separate CI-equivalent logic run also passed 7/7 in Playwright `HeadlessChrome/151.0.7922.34`.
 
 | Tier | Cases | Passed | Pass rate | Environment |
 | --- | ---: | ---: | ---: | --- |
-| WebMCP | Pending | Pending | Pending | Chrome 152.0.7977.64, `--enable-features=WebMCP` |
-| Logic | Pending | Pending | Pending | Chrome 152.0.7977.64, `?test=1` hook |
+| WebMCP | 6 | 6 | 100% | Chrome 152.0.7977.64, `--enable-features=WebMCPTesting` |
+| Logic | 7 | 7 | 100% | Chrome 152.0.7977.64, `?test=1` hook |
 
 ## How it works
 
@@ -59,7 +59,7 @@ Reproduction code and the harness execute with equal authority inside the same W
 
 Gatehouse is licensed under the MIT License; see [LICENSE](LICENSE).
 
-> Target notice pending: once the selected npm target lands, this section will name its library, version pair, upstream license, and bundled `targets/<id>/LICENSE.<library>.txt` file.
+Gatehouse bundles qs 6.12.0 as the reported build and qs 6.12.1 as the comparison build. qs is distributed under the BSD 3-Clause License; the bundled license text is at [`targets/qs-500/LICENSE.qs.txt`](targets/qs-500/LICENSE.qs.txt).
 
 Third-party target bundles retain their upstream copyrights and licenses. Their inclusion is for deterministic regression reproduction and does not change Gatehouse's license.
 
@@ -68,7 +68,7 @@ Third-party target bundles retain their upstream copyrights and licenses. Their 
 The README v1 was checked with:
 
 - Node.js 22.23.1 on macOS; the package declares `engines.node` as `>=20`.
-- Google Chrome 152.0.7977.64. Automated WebMCP evals require Chrome 151 or newer with `--enable-features=WebMCP`.
+- Google Chrome 152.0.7977.64. Automated WebMCP evals require Chrome 151 or newer with `--enable-features=WebMCPTesting`.
 - Vanilla ES2022 modules, `node:test`, and the repository's lockfile; no framework or build step is required.
 
 Run the repository acceptance suite with:
@@ -81,7 +81,7 @@ npm test
 
 Gatehouse doesn't replace your issue tracker — it mints evidence that travels through it.
 
-Reporters can manually share a Gatehouse receipt through the project's ordinary GitHub issue form. The receipt carries the exact reproduction and pinned differential results, can be replayed locally, and can be adopted as a regression test without moving maintainers to another inbox.
+Reporters can manually share a Gatehouse receipt through the project's ordinary GitHub issue form. The shared receipt displays the exact reproduction, claimed pinned results, and explicit verification limits; it does not execute code. In the reporter-side signed inbox, the same artifact can be replayed against the local manifest or exported as a disabled, untrusted regression-test starting point.
 
 A receipt keeps four claims separate:
 
@@ -92,4 +92,4 @@ A receipt keeps four claims separate:
 | Runtime reproduction | Reproduced 5/5 in-browser (client-side); independent reproduction `not verified` |
 | Approver identity | Local approval recorded; identity `not verified` |
 
-> Integration package pending: the required receipt field for a GitHub issue form and the no-receipt bot reply will be added from the maintainer-lane handoff.
+> A draft GitHub issue-form field and no-receipt reply are included in [`src/inbox/for-maintainers.draft.md`](src/inbox/for-maintainers.draft.md); projects must review and install them manually.

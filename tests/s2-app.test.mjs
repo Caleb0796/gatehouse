@@ -32,6 +32,10 @@ test("application assembly uses the real target and all six modules", async () =
   assert.match(app, /const TARGET_ID = "qs-500"/);
   assert.match(app, /runDifferential: runRealDifferential/);
   assert.doesNotMatch(app, /contracts\/fixtures|differential-(?:green|failboth|inverted)\.json/);
+  assert.doesNotMatch(app, /last[- ]good/i);
+  assert.match(app, /Reference build/);
+  assert.match(app, /state\.invalid !== true/);
+  assert.match(app, /Run blocked: repro code exceeds/);
   for (const initializer of [
     "initBanner",
     "initTimeline",
@@ -100,6 +104,7 @@ test("base stylesheet covers the shell, surface panels, and both color schemes",
     ".editor-panel__label",
     ".run-panel__actions",
     ".sign-panel__status",
+    ".sign-panel__review",
     "#inbox-root",
   ]) {
     assert.match(css, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

@@ -22,6 +22,22 @@ export function assertArtifactSize(artifact) {
   }
 }
 
+export function assertArtifactEvidence(artifact) {
+  if (!Number.isInteger(artifact.repeats) || artifact.repeats < 1) {
+    throw new Error("Artifact repeat count is invalid.");
+  }
+  for (const version of ["bad", "good"]) {
+    const versionSamples = artifact.samples?.[version];
+    if (!Array.isArray(versionSamples) || versionSamples.length !== artifact.repeats) {
+      throw new Error(`Artifact ${version} samples do not match the repeat count.`);
+    }
+    const expectedSha256 = artifact[`${version}Sha256`];
+    if (versionSamples.some(sample => sample.bundleSha256 !== expectedSha256)) {
+      throw new Error(`Artifact ${version} sample bundle SHA-256 does not match the target.`);
+    }
+  }
+}
+
 export function createArtifactDraft({ target, gateState, verdict, timeline }) {
   const artifact = {
     v: 2,
@@ -42,6 +58,7 @@ export function createArtifactDraft({ target, gateState, verdict, timeline }) {
     issueUrl: target.issueUrl,
     targetKind: target.kind,
   };
+  assertArtifactEvidence(artifact);
   assertArtifactSize(artifact);
   return artifact;
 }

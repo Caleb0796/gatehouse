@@ -10,7 +10,12 @@ const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
 test("srcdoc contains only the external runner script", () => {
   const srcdoc = createRunnerSrcdoc();
-  assert.equal(srcdoc, '<!doctype html><script src="/src/sandbox/runner-inner.js"></script>');
+  assert.match(srcdoc, /http-equiv="Content-Security-Policy"/);
+  assert.match(srcdoc, /connect-src 'none'/);
+  assert.match(srcdoc, /worker-src blob:/);
+  assert.match(srcdoc, /script-src 'nonce-gatehouse-runner' 'wasm-unsafe-eval'/);
+  assert.doesNotMatch(srcdoc, /script-src 'self'/);
+  assert.match(srcdoc, /<script nonce="gatehouse-runner" src="\/src\/sandbox\/runner-inner\.js"><\/script>$/);
   assert.doesNotMatch(srcdoc, /allow-same-origin/);
   assert.doesNotMatch(srcdoc, /<script(?:\s[^>]*)?>\s*[^<\s]/);
 });
@@ -110,6 +115,14 @@ test("inner runner validates worker messages and bounds captured logs", async ()
   assert.match(inner, /worker\.terminate\(\)/);
   assert.match(inner, /logs\.slice\(0, 100\)/);
   assert.match(inner, /slice\(0, 500\)/);
+});
+
+test("worker imports are denied while the external runner element remains allowed", () => {
+  const srcdoc = createRunnerSrcdoc();
+
+  assert.match(srcdoc, /script-src 'nonce-gatehouse-runner' 'wasm-unsafe-eval'/);
+  assert.doesNotMatch(srcdoc, /script-src-elem/);
+  assert.match(srcdoc, /<script nonce="gatehouse-runner" src="\/src\/sandbox\/runner-inner\.js"><\/script>$/);
 });
 
 test("browser acceptance page keeps its script external", async () => {

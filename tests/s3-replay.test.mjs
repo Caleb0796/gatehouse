@@ -4,21 +4,66 @@ import test from "node:test";
 import {
   initReplay,
   runReplay,
-  runsMatch,
+  samplesMatch,
 } from "../src/inbox/replay.js";
 
-const fixture = JSON.parse(await readFile(
-  new URL("../contracts/fixtures/artifact.sample.json", import.meta.url),
-  "utf8",
-));
-const green = JSON.parse(await readFile(
-  new URL("../contracts/fixtures/differential-green.json", import.meta.url),
-  "utf8",
-));
-const failBoth = JSON.parse(await readFile(
-  new URL("../contracts/fixtures/differential-failboth.json", import.meta.url),
-  "utf8",
-));
+const badSha256 = "a".repeat(64);
+const goodSha256 = "b".repeat(64);
+const reproSha256 = "c".repeat(64);
+
+function samples() {
+  return {
+    bad: Array.from({ length: 5 }, (_, index) => ({
+      verdict: "fail",
+      logs: [`bad ${index}`],
+      durationMs: 12 + index,
+      bundleSha256: badSha256,
+    })),
+    good: Array.from({ length: 5 }, (_, index) => ({
+      verdict: "pass",
+      logs: [],
+      durationMs: 10 + index,
+      bundleSha256: goodSha256,
+    })),
+  };
+}
+
+const fixture = {
+  v: 2,
+  targetId: "demo-lib-001",
+  library: "gatehouse-demo-lib",
+  badVersion: "1.1.0",
+  goodVersion: "1.0.0",
+  badSha256,
+  goodSha256,
+  repro: "assert(example.value === 4)",
+  reproSha256,
+  green: true,
+  reason: "STABLE_LOCAL_DIFFERENTIAL",
+  stable: true,
+  repeats: 5,
+  samples: samples(),
+  timeline: [{ at: "2026-08-29T10:07:00Z", event: "signed", detail: "" }],
+  signedAt: "2026-08-29T10:07:00Z",
+  ua: "fixture",
+  issueUrl: null,
+  targetKind: "seed",
+};
+
+const green = {
+  green: true,
+  reason: "STABLE_LOCAL_DIFFERENTIAL",
+  stable: true,
+  repeats: 5,
+  samples: samples(),
+  reproSha256,
+  targetId: fixture.targetId,
+};
+
+const failBoth = structuredClone(green);
+failBoth.green = false;
+failBoth.reason = "FAIL_BOTH";
+for (const sample of failBoth.samples.good) sample.verdict = "fail";
 
 class Element {
   constructor(ownerDocument, tagName) {
@@ -62,20 +107,36 @@ test("replays the stored repro against its target", async () => {
 
   assert.deepEqual(calls, [[fixture.repro, { targetId: fixture.targetId }]]);
   assert.equal(result.consistent, true);
-  assert.equal(result.recordedRuns, fixture.runs);
-  assert.equal(result.currentRuns, green.runs);
+  assert.equal(result.recordedSamples, fixture.samples);
+  assert.equal(result.currentSamples, green.samples);
 });
 
-test("compares verdicts and bundle hashes without treating timing as drift", () => {
-  const current = structuredClone(fixture.runs);
-  current[0].durationMs += 500;
-  current[0].logs = ["different machine output"];
-  assert.equal(runsMatch(fixture.runs, current), true);
-  current[1].bundleSha256 = "0".repeat(64);
-  assert.equal(runsMatch(fixture.runs, current), false);
+test("compares every v2 sample without treating timing or logs as drift", () => {
+  const current = structuredClone(fixture.samples);
+  current.bad[0].durationMs += 500;
+  current.bad[0].logs = ["different machine output"];
+  assert.equal(samplesMatch(fixture.samples, current), true);
+  current.good[2].bundleSha256 = "0".repeat(64);
+  assert.equal(samplesMatch(fixture.samples, current), false);
 });
 
-test("renders recorded and current runs in a green matching frame", async () => {
+test("replays public projections even when all recorded logs are absent", async () => {
+  const publicArtifact = structuredClone(fixture);
+  for (const group of Object.values(publicArtifact.samples)) {
+    for (const sample of group) delete sample.logs;
+  }
+  const result = await runReplay(publicArtifact, async () => green);
+  assert.equal(result.consistent, true);
+});
+
+test("explicitly refuses v1 replay artifacts", async () => {
+  await assert.rejects(
+    () => runReplay({ v: 1 }, async () => green),
+    /schema v2/,
+  );
+});
+
+test("renders recorded and current samples in a green matching frame", async () => {
   const document = fakeDocument();
   const root = new Element(document, "section");
   initReplay(root, fixture, { runDifferential: async () => green });
@@ -83,12 +144,12 @@ test("renders recorded and current runs in a green matching frame", async () => 
   await root.children[0].listeners.click();
 
   assert.equal(root.children[1].className, "replay-result consistent");
-  assert.match(textTree(root), /Replay matches recorded runs/);
-  assert.match(textTree(root), /Recorded runs/);
-  assert.match(textTree(root), /Current runs/);
+  assert.match(textTree(root), /Replay matches recorded samples/);
+  assert.match(textTree(root), /Recorded samples/);
+  assert.match(textTree(root), /Current samples/);
 });
 
-test("renders changed runs in a yellow warning frame", async () => {
+test("renders changed samples in a yellow warning frame", async () => {
   const document = fakeDocument();
   const root = new Element(document, "section");
   initReplay(root, fixture, { runDifferential: async () => failBoth });

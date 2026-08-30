@@ -1,4 +1,4 @@
-export const DEMO_PROMPT = `Use the Gatehouse tools on this page to produce replayable regression evidence. Start with get_target_info. Then iterate with write_repro and run_repro until the repro fails on the reported version and passes on the last good version. When submit_report appears, call it to stage the report for my signature.`;
+export const DEMO_PROMPT = `Use the Gatehouse tools on this page to produce replayable regression evidence. Start with get_target_info. Then iterate with write_repro and run_repro until the repro produces a stable local differential: it fails on the reported build and passes on the reference build in this browser. When submit_report appears, call it to stage the report for my signature.`;
 
 export function init(rootEl, deps = {}) {
   const doc = deps.document || document;

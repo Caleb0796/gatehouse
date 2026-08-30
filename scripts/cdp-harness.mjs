@@ -1,17 +1,23 @@
 const CHROME_CHANNEL = "chrome";
-const WEBMCP_FLAG = "--enable-features=WebMCP";
+const WEBMCP_FLAG = "--enable-features=WebMCPTesting";
+const MAX_TOOL_OUTPUT_LENGTH = 1500;
 
-function parseToolResult(value) {
-  if (typeof value !== "string") return value;
+export function parseToolResult(value) {
+  if (typeof value !== "string") {
+    throw new TypeError("Native WebMCP executeTool must return a JSON string.");
+  }
+  if (value.length > MAX_TOOL_OUTPUT_LENGTH) {
+    throw new RangeError("Native WebMCP executeTool output exceeds 1500 characters.");
+  }
   try {
     return JSON.parse(value);
-  } catch {
-    return value;
+  } catch (error) {
+    throw new TypeError("Native WebMCP executeTool returned invalid JSON.", { cause: error });
   }
 }
 
 function assertSupportedChrome(product) {
-  const major = Number.parseInt(product.match(/^Chrome\/(\d+)/)?.[1] ?? "", 10);
+  const major = Number.parseInt(product.match(/^(?:Headless)?Chrome\/(\d+)/)?.[1] ?? "", 10);
   if (!Number.isInteger(major) || major < 151) {
     throw new Error(`Chrome 151 or newer is required, got ${product}`);
   }
@@ -170,14 +176,24 @@ export async function launchChromeHarness({
 
     const encodeReceipt = (artifact) => page.evaluate(async (value) => {
       const receipt = await import("/src/inbox/receipt.js");
-      return receipt.encodeReceipt(value);
+      const review = await receipt.prepareReceiptShare(value);
+      if (review.error) return review;
+      return receipt.encodeReceipt(value, {
+        confirmed: true,
+        expectedReceiptId: review.receiptId,
+      });
     }, artifact);
 
     const decodeReceipt = (receipt) => page.evaluate(async (value) => {
       const codec = await import("/src/inbox/receipt.js");
-      if (typeof value?.url !== "string") return { error: "receipt has no URL" };
-      const hash = value.url.slice(value.url.indexOf("#"));
-      return codec.decodeReceipt(hash);
+      if (typeof value?.url === "string") {
+        const hash = value.url.slice(value.url.indexOf("#"));
+        return codec.decodeReceipt(hash);
+      }
+      if (typeof value?.download === "string") {
+        return codec.importReceiptJson(value.download);
+      }
+      return { error: "receipt has neither a URL nor importable JSON" };
     }, receipt);
 
     const click = async (selector) => {

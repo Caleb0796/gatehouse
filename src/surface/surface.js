@@ -5,6 +5,8 @@ import { createGate } from "./gate.js";
 const EXECUTION_MODEL =
   "Repro code runs client-side against each pinned library bundle in an isolated sandbox. An assert(condition, message) helper is provided; a local differential is reproduced when the assertion fails on the reported-bad build and passes on the comparison-good build. This is reporter-side evidence; independent replay and bundle provenance are not verified.";
 const MAX_TOOL_OUTPUT_LENGTH = 1500;
+export const MAX_REPRO_BYTES = 8192;
+const MAX_TIMELINE_ENTRIES = 50;
 const ALWAYS_AVAILABLE_TOOLS = [
   "get_target_info",
   "write_repro",
@@ -73,6 +75,53 @@ function invalid(message) {
   return { code: "INVALID_INPUT", message };
 }
 
+function latestSample(verdict, version) {
+  const samples = verdict.samples?.[version];
+  if (Array.isArray(samples) && samples.length > 0) return samples.at(-1);
+  if (!Array.isArray(verdict.runs)) return null;
+  return verdict.runs.find(run => run?.version === version) ?? null;
+}
+
+function summarizeRun(verdict, version) {
+  const sample = latestSample(verdict, version);
+  if (sample === null) return null;
+  return {
+    version,
+    verdict: sample.verdict,
+    durationMs: sample.durationMs,
+    logs: Array.isArray(sample.logs)
+      ? sample.logs.slice(-3).map(log => String(log).slice(0, 200))
+      : [],
+  };
+}
+
+function summarizeVerdict(verdict) {
+  return {
+    green: verdict.green,
+    reason: verdict.reason,
+    stable: verdict.stable,
+    repeats: verdict.repeats,
+    runs: [
+      summarizeRun(verdict, "bad"),
+      summarizeRun(verdict, "good"),
+    ].filter(Boolean),
+  };
+}
+
+function appendTimelineEntry(entries, entry) {
+  const next = [...entries, entry];
+  if (next.length <= MAX_TIMELINE_ENTRIES) return next;
+  const retained = next.slice(-(MAX_TIMELINE_ENTRIES - 1));
+  return [
+    {
+      at: retained[0].at,
+      event: "history-truncated",
+      detail: "Earlier timeline events omitted.",
+    },
+    ...retained,
+  ];
+}
+
 export function createToolDefinitions({
   target,
   gate,
@@ -80,11 +129,12 @@ export function createToolDefinitions({
   requestHumanReview,
   stageReport,
 }) {
+  let runInProgress = false;
   const definitions = {
     get_target_info: {
       name: "get_target_info",
       description:
-        "Returns the single-target prototype configuration: library name, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
+        "Returns the single-target prototype configuration: library name, target kind, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -101,6 +151,7 @@ export function createToolDefinitions({
         return {
           targetId: target.id,
           library: target.library,
+          targetKind: target.kind,
           badVersion: target.badVersion,
           goodVersion: target.goodVersion,
           badSha256: target.badSha256,
@@ -133,7 +184,7 @@ export function createToolDefinitions({
         if (typeof args.code !== "string" || args.code.length === 0) {
           return invalid("code must be a non-empty string.");
         }
-        if (new TextEncoder().encode(args.code).byteLength > 8192) {
+        if (new TextEncoder().encode(args.code).byteLength > MAX_REPRO_BYTES) {
           return invalid("code must be at most 8KB when UTF-8 encoded.");
         }
         const state = await gate.setDraft(args.code);
@@ -162,10 +213,18 @@ export function createToolDefinitions({
         if (state.draftSha === null) {
           return { code: "NO_REPRO", message: "No draft reproduction has been written." };
         }
-        const generation = gate.beginRun();
-        const verdict = await runDifferential(state.draft, { targetId: target.id });
-        gate.onVerdict(verdict, generation);
-        return verdict;
+        if (runInProgress) {
+          return { code: "RUN_IN_PROGRESS", message: "A differential run is already in progress." };
+        }
+        runInProgress = true;
+        try {
+          const generation = gate.beginRun();
+          const verdict = await runDifferential(state.draft, { targetId: target.id });
+          gate.onVerdict(verdict, generation);
+          return summarizeVerdict(verdict);
+        } finally {
+          runInProgress = false;
+        }
       },
     },
 
@@ -285,11 +344,11 @@ export function createSurface({
     getState: gate.getState,
     beginRun: gate.beginRun,
     async setDraft(code) {
-      const wasOpen = gate.getState().gateOpen;
-      const state = await gate.setDraft(code);
+      const invalid = new TextEncoder().encode(code).byteLength > MAX_REPRO_BYTES;
+      const state = await gate.setDraft(invalid ? "" : code);
       boundVerdict = null;
 
-      if (wasOpen) {
+      if (submitController !== null) {
         submitController.abort();
         submitController = null;
         activeTools.delete("submit_report");
@@ -302,9 +361,10 @@ export function createSurface({
       }
       eventBus.emit("draft", {
         reproSha256: state.draftSha,
-        length: state.draft.length,
+        length: code.length,
+        ...(invalid ? { invalid: true } : {}),
       });
-      return state;
+      return invalid ? { ...state, invalid: true } : state;
     },
     onVerdict(verdict, generation) {
       const isLatestRun = gate.isLatestRun(generation);
@@ -317,7 +377,11 @@ export function createSurface({
       const at = new Date().toISOString();
 
       eventBus.emit("run", { verdict });
-      timeline = [...timeline, { at, event: "run", detail: verdict.reason }];
+      timeline = appendTimelineEntry(timeline, {
+        at,
+        event: "run",
+        detail: verdict.reason,
+      });
       if (wasOpen && !state.gateOpen) {
         boundVerdict = null;
         submitController.abort();

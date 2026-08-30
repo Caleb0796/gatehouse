@@ -6,7 +6,7 @@ import { init as initBanner } from "../ui/banner.js";
 import { init as initScoreboard } from "../ui/scoreboard.js";
 import { init as initTimeline } from "../ui/timeline.js";
 import { initSigning } from "./sign.js";
-import { createSurface, getToolTable } from "./surface.js";
+import { createSurface, getToolTable, MAX_REPRO_BYTES } from "./surface.js";
 
 const TARGET_ID = "qs-500";
 
@@ -49,7 +49,7 @@ function renderTarget(rootEl, target) {
   for (const [label, value] of [
     ["Target", `${target.library} · ${target.id}`],
     ["Reported bad", `${target.badVersion} · ${target.badSha256}`],
-    ["Last good", `${target.goodVersion} · ${target.goodSha256}`],
+    ["Reference build", `${target.goodVersion} · ${target.goodSha256}`],
   ]) {
     appendText(versions, "dt", label);
     appendText(versions, "dd", value);
@@ -71,7 +71,7 @@ function renderEditor(rootEl, initialCode) {
   appendText(
     rootEl,
     "p",
-    "Write JavaScript that fails an assertion on the reported-bad build and passes on the last-good build.",
+    "Write JavaScript that fails an assertion on the reported build and passes on the reference build.",
     "panel__help",
   );
   const label = appendText(rootEl, "label", "Repro code", "editor-panel__label");
@@ -117,11 +117,22 @@ function renderSignPanel(rootEl) {
     "A green differential can stage a report, but only a person can sign it.",
     "panel__help",
   );
+  const reviewRoot = document.createElement("section");
+  reviewRoot.className = "sign-panel__review";
+  reviewRoot.hidden = true;
+  appendText(reviewRoot, "h3", "Exact staged report");
+  const reviewSummary = appendText(reviewRoot, "p", "", "sign-panel__review-summary");
+  const reviewRepro = appendText(reviewRoot, "pre", "", "sign-panel__review-repro");
+  rootEl.append(reviewRoot);
   const status = appendText(rootEl, "p", "未提交", "sign-panel__status");
   status.setAttribute("aria-live", "polite");
   const button = appendText(rootEl, "button", "Sign & submit", "button button--primary");
   button.type = "button";
-  return { button, status };
+  return {
+    button,
+    status,
+    review: { root: reviewRoot, repro: reviewRepro, summary: reviewSummary },
+  };
 }
 
 function formatRun(result) {
@@ -210,15 +221,24 @@ export async function initSurface({ runDifferential, target }) {
   initSigning({
     button: signView.button,
     status: signView.status,
+    review: signView.review,
     getGateState: surface.gate.getState,
   });
 
   let draftUpdate = Promise.resolve();
+  let draftValid = true;
   const storeDraft = code => {
     draftUpdate = draftUpdate.then(async () => {
       const state = await surface.gate.setDraft(code);
+      draftValid = state.invalid !== true;
+      if (!draftValid) {
+        editorView.status.textContent = `Draft not stored · maximum ${MAX_REPRO_BYTES / 1024}KB UTF-8`;
+        runView.runButton.disabled = true;
+        return;
+      }
       editorView.status.textContent = `Draft stored · ${state.draftSha.slice(0, 12)}`;
       editorView.editor.classList.remove("editor-panel__attention");
+      runView.runButton.disabled = false;
     });
     return draftUpdate;
   };
@@ -231,12 +251,16 @@ export async function initSurface({ runDifferential, target }) {
     runView.output.textContent = "Running both pinned builds…";
     try {
       await draftUpdate;
+      if (!draftValid) {
+        runView.output.textContent = `Run blocked: repro code exceeds ${MAX_REPRO_BYTES / 1024}KB UTF-8.`;
+        return;
+      }
       const result = await surface.definitions.run_repro.execute({});
       runView.output.textContent = formatRun(result);
     } catch (error) {
       runView.output.textContent = `Run failed: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
-      runView.runButton.disabled = false;
+      runView.runButton.disabled = !draftValid;
     }
   });
   runView.reviewButton.addEventListener("click", async () => {

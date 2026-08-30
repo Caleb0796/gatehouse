@@ -183,6 +183,24 @@ button:disabled {
   padding: 0.65rem;
 }
 
+.sign-panel__review {
+  border-top: 1px solid var(--line);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.sign-panel__review-summary {
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.sign-panel__review-repro {
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
+
 #inbox-root pre {
   max-width: 100%;
   overflow: auto;

@@ -6,20 +6,22 @@
     "repro": "{{target.demoRepros.real}}"
   },
   "actions": [
-    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" } },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}" }, "saveAs": "draft" },
     { "op": "executeTool", "name": "run_repro", "saveAs": "greenRun" },
     { "op": "executeTool", "name": "submit_report", "input": {}, "saveAs": "staged" },
     { "op": "click", "selector": "#sign-panel button", "saveAs": "signed" },
     { "op": "readSignedArtifact", "saveAs": "artifact" },
-    { "op": "encodeReceipt", "artifact": "artifact", "saveAs": "receipt" },
+    { "op": "prepareReceiptShare", "artifact": "artifact", "saveAs": "review" },
+    { "op": "encodeReceipt", "artifact": "artifact", "review": "review", "saveAs": "receipt" },
     { "op": "decodeReceipt", "receipt": "receipt", "saveAs": "decoded" }
   ],
   "expect": {
     "reason": "STABLE_LOCAL_DIFFERENTIAL",
     "stagedStatus": "staged_awaiting_human_signature",
     "artifactHashMatchesDraft": true,
-    "receiptArtifactRoundTrip": true,
-    "reproHashOk": true,
-    "verificationLabel": "repro hash verified ✓"
+    "publicProjectionRoundTrip": true,
+    "publicProjectionHasLogs": false,
+    "receiptIdentityMatchesProjection": true,
+    "reproHashOk": true
   }
 }

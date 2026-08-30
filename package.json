@@ -1,7 +1,7 @@
 {
   "name": "gatehouse",
   "version": "0.1.0",
-  "description": "An agent-native front door for open-source bug reports: a repro must fail on the bad build and pass on the good one before the submit tool exists.",
+  "description": "An agent-native front door that records repeated local differential evidence for browser-JavaScript bug reports.",
   "type": "module",
   "license": "MIT",
   "engines": {

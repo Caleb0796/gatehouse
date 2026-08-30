@@ -66,6 +66,17 @@ test("timeline consumes all five bus event types with distinct styles", () => {
   assert.match(list.children[2].children[1].children[1].textContent, /abcdef123456/);
 });
 
+test("green runs are described as local evidence", () => {
+  const { root, listeners } = setup();
+
+  listeners.get("run")({ verdict: { green: true } });
+
+  assert.equal(
+    root.children[1].children[0].children[1].children[1].textContent,
+    "Stable local differential · green",
+  );
+});
+
 test("submit_report registration receives the gate-opened memory-anchor style", () => {
   const { root, listeners } = setup();
 
@@ -86,6 +97,20 @@ test("dispose removes all timeline listeners", () => {
   assert.equal(listeners.size, 5);
   dispose();
   assert.equal(listeners.size, 0);
+});
+
+test("timeline keeps only the latest activity and marks truncation", () => {
+  const { root, listeners } = setup();
+
+  for (let index = 0; index < 10_000; index += 1) {
+    listeners.get("draft")({ reproSha256: String(index), length: index });
+  }
+
+  const list = root.children[1];
+  assert.equal(list.children.length, 50);
+  assert.equal(list.children[0].dataset.event, "history-truncated");
+  assert.equal(list.children[0].textContent, "Earlier activity omitted.");
+  assert.match(list.children.at(-1).children[1].children[1].textContent, /9999 characters/);
 });
 
 test("timeline requires the shared bus dependency", () => {

@@ -2,8 +2,7 @@
   "id": "timeout-recovers",
   "tier": "logic",
   "setup": {
-    "reset": true,
-    "timeoutMs": 250
+    "reset": true
   },
   "actions": [
     { "op": "executeTool", "name": "write_repro", "input": { "code": "while (true) {}" } },
@@ -11,7 +10,7 @@
     { "op": "probePage", "saveAs": "pageProbe" }
   ],
   "expect": {
-    "reason": "BAD_TIMEOUT",
+    "reason": "EXECUTION_ERROR",
     "badVerdict": "timeout",
     "pageAlive": true,
     "maxRecoveryMs": 2000,

@@ -27,7 +27,7 @@ test("WebMCP path discovers every tool and executes all three rounds", async () 
     },
     async executeTool(tool, args) {
       calls.push([tool.name, args]);
-      return { ok: true };
+      return JSON.stringify({ ok: true });
     },
   };
   const waits = [];
@@ -50,6 +50,21 @@ test("WebMCP path discovers every tool and executes all three rounds", async () 
     ["submit_report", "{}"],
   ]);
   assert.deepEqual(waits, Array(7).fill(800));
+});
+
+test("WebMCP path rejects non-JSON native tool results", async () => {
+  const tool = { name: "get_target_info" };
+  const invoke = createToolInvoker({
+    modelContext: {
+      getTools: async () => [tool],
+      executeTool: async () => ({ ok: true }),
+    },
+  });
+
+  await assert.rejects(
+    invoke.execute("get_target_info", {}),
+    /must return a JSON string/,
+  );
 });
 
 test("fallback path calls the current mock tool table directly", async () => {

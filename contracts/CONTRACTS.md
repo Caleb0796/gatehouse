@@ -1,8 +1,8 @@
-# Gatehouse CONTRACTS v2
+# Gatehouse CONTRACTS v2.2
 
 > Frozen interfaces between build lanes. Changes only via the coordinator (version bump + changelog).
 
-## 3. CONTRACTS v2（冻结；改动只经协调者，版本递增广播）
+## 3. CONTRACTS v2.2（冻结；改动只经协调者，版本递增广播）
 
 ### 3.1 TargetSpec —— `targets/<id>/manifest.json`（A3/A6/D2 增补）
 ```json
@@ -32,27 +32,31 @@ iframe→parent  { t:"ready" } / { t:"result", runId, verdict, logs, durationMs 
 
 ### 3.4 RunResult / DifferentialVerdict（A3/A4 修订）
 `runDifferential(code, {targetId, timeoutMs?}) → Promise<DifferentialVerdict>`——**targetId 必填**，重放锚定同一 manifest 与 bundle 哈希（A3）。
-**judge 是 16 组合全覆盖的全函数，按序判定**（A4）：
+每次调用固定交错执行 5 次 bad 和 5 次 good；返回 `repeats:5`、`stable:boolean`、`samples:{bad:RunResult[5],good:RunResult[5]}`，并保留 `runs` 作为每个版本最后一个样本的工具摘要。调用方不得把单个 `runs` 摘要当作稳定性证据。
+**`judgePair` 是 16 组合全覆盖的全函数，按序判定**（A4）：
 1. `bad:"fail" && good:"pass"` → `green:true, reason:"STABLE_LOCAL_DIFFERENTIAL"`
 2. `bad:"timeout"` → `BAD_TIMEOUT`；3. `bad:"error"` → `BAD_ERROR`；4. `good:"timeout"` → `GOOD_TIMEOUT`；5. `good:"error"` → `GOOD_ERROR`
 6. `bad:"pass" && good:"fail"` → `INVERTED`；7. 双 fail → `FAIL_BOTH`；8. 双 pass → `PASS_BOTH`
-`tests/s1-differential.test.mjs` 必须枚举全部 16 组合断言归类（不是 7 案是 16 案）。
+批量 `judge` 先把任一样本的 error/timeout 归为 `EXECUTION_ERROR`，再把同版本 verdict 混杂或 bad 失败指纹不一致归为 `UNSTABLE`；其余稳定批次委托给 `judgePair`。`tests/s1-differential.test.mjs` 必须枚举 `judgePair` 全部 16 组合，并覆盖批量稳定、非稳定与执行失败。
 
-### 3.5 SubmissionArtifact（A3 增补）
-v1 字段 + `"issueUrl": string|null`、`"targetKind": "real"|"seed"`。无姓名字段不变。
+### 3.5 SubmissionArtifact（A3/F1 增补）
+schema v2 包含目标、版本、bundle SHA-256、repro、repro SHA-256、`green`、`reason`、`stable`、`repeats`、完整 `samples`、timeline、签名时间、UA、`issueUrl:string|null` 与 `targetKind:"real"|"seed"`。artifact 不再存 v1 的单对 `runs`；`samples.bad` 与 `samples.good` 的长度必须都等于 `repeats`。每个 artifact sample 的字段为 `{verdict,logs,durationMs,bundleSha256}`，每样本 logs 最多 5 条、每条最多 200 字符，序列化 artifact 上限 32KB。无姓名字段不变。
 
 ### 3.6 Surface 事件（`src/shared/bus.js`，S2 发、S3/S4 听）
 ```js
-bus.emit("surface", { change:"registered"|"revoked", tool:"submit_report", reason:"differential green"|"repro edited", at:Date.now() });
+bus.emit("surface", { change:"registered"|"revoked", tool:"submit_report", reason:"differential green"|"differential not green"|"repro edited", at:Date.now() });
 bus.emit("run",     { verdict: DifferentialVerdict });      // S4 时间线/计分牌
-bus.emit("draft",   { reproSha256, length });               // S4 草稿状态
+bus.emit("draft",   { reproSha256, length, invalid? });     // S4 草稿状态；超 8KB 时 invalid:true
 bus.emit("staged",  { artifactDraft });                     // S2→签名 UI
 bus.emit("signed",  { artifact: SubmissionArtifact });      // S3 收件箱入库
 ```
 
-### 3.7 回执 URL（B5/B6 重写）
-编码：`JSON.stringify(artifact)` → `CompressionStream("deflate-raw")` → base64url → `receipt.html#a=<...>`。**预算：编码后 ≤6KB 走 URL；超限只提供下载 JSON**（write_repro 8KB 上限 + logs 每 run 截 10 条使 URL 路径为常态）。
-解码校验（B6）：payload 解压前上限 64KB；解出后过**严格 schema 全字段校验**（手写，不用 assertShape）；重算 `sha256(repro)` 比对，标签写 **"repro hash verified ✓"**（不写笼统 verified）；版本/哈希字段原样展示注明 as-claimed。**渲染只用 `textContent`，全页 grep 无 `innerHTML`**；解码失败返回 `{error}` 页面友好显示，不 throw。
+### 3.7 回执 URL / JSON（B5/B6 重写）
+分享前先把 artifact 投影为公开副本，默认删除全部 sample logs，并显示**完整公开 JSON 预览、可能的凭据/私网地址提示、规范 receipt ID 与明确的第三方分享警告**。只有人工再次确认且预览 ID 仍匹配时才编码；这一步是防误分享提示，不是秘密扫描保证。
+
+编码：canonical JSON → `CompressionStream("deflate-raw")` → base64url → `receipt.html#a=<payload>&h=<canonical-sha256>`。完整 URL 预算 ≤6KB；超限或浏览器不支持压缩时提供同一公开投影的下载 JSON，并由回执页的 **Import receipt JSON** 导入。无论 URL 或 JSON，解码前压缩数据上限 64KB，解压/导入后的 JSON 上限 32KB。
+
+解码后执行**严格 schema v2 全字段校验**（手写，不用 assertShape），校验每侧正好 5 个样本、verdict 与 bundle SHA-256 一致、时间/日志边界、canonical 内容哈希及 `sha256(repro)`。回执页把四个状态分开显示：repro source hash 仅为 self-consistent；build origin、independent run、approver identity 均为 `not verified`。版本/哈希字段原样展示并注明 as-claimed。**渲染只用 `textContent`，不使用 `innerHTML`**；解码失败返回 `{error}` 并给出可操作提示，不向页面抛出未处理异常。
 
 ### 3.8 冻结层代码（S0 落盘，全员只读）
 
@@ -96,4 +100,5 @@ export const bus = {
 
 ## Changelog
 - v2 (2026-08-29): initial frozen set, post adversarial review.
-- v2.1 (2026-08-29): F1 stability gate — differential runs N=5 per version; green reason renamed REGRESSION_DEMONSTRATED → STABLE_LOCAL_DIFFERENTIAL; added UNSTABLE / EXECUTION_ERROR; artifact schema v→2 stores full samples. The gate is a non-determinism filter + local self-attestation, NOT an anti-forgery gate.
+- v2.1 (2026-08-29): F1 stability gate — differential runs N=5 per version; green reason renamed to STABLE_LOCAL_DIFFERENTIAL; added UNSTABLE / EXECUTION_ERROR; artifact schema v→2 stores full samples. The gate is a non-determinism filter + local self-attestation, NOT an anti-forgery gate.
+- v2.2 (2026-08-29): Receipt sharing now uses a reviewed public projection, canonical content hash, strict size/schema checks, and JSON fallback; surface events document non-green revocation and invalid oversized drafts.

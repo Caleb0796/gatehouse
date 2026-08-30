@@ -39,6 +39,9 @@ test("demo prompt is fixed, actionable, and copied verbatim", async () => {
   assert.match(DEMO_PROMPT, /write_repro/);
   assert.match(DEMO_PROMPT, /run_repro/);
   assert.match(DEMO_PROMPT, /submit_report/);
+  assert.match(DEMO_PROMPT, /stable local differential/);
+  assert.match(DEMO_PROMPT, /reference build/);
+  assert.doesNotMatch(DEMO_PROMPT, /last[- ]good/i);
 
   await root.children[2].listeners.get("click")();
   assert.deepEqual(writes, [DEMO_PROMPT]);

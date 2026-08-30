@@ -11,7 +11,7 @@
     { "op": "getTools", "saveAs": "tools" }
   ],
   "expect": {
-    "reason": "GOOD_ERROR",
+    "reason": "EXECUTION_ERROR",
     "badVerdict": "fail",
     "goodVerdict": "error",
     "gateOpen": false,

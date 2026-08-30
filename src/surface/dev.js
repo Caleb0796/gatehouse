@@ -22,8 +22,8 @@ const target = {
   library: "gatehouse-demo-lib",
   badVersion: "1.1.0",
   goodVersion: "1.0.0",
-  badSha256: fixture.runs[0].bundleSha256,
-  goodSha256: fixture.runs[1].bundleSha256,
+  badSha256: fixture.samples.bad[0].bundleSha256,
+  goodSha256: fixture.samples.good[0].bundleSha256,
   issueUrl: null,
   kind: "seed",
 };

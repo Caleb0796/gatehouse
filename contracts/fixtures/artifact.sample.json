@@ -1,5 +1,5 @@
 {
-  "v": 1,
+  "v": 2,
   "targetId": "demo-lib-001",
   "library": "gatehouse-demo-lib",
   "badVersion": "1.1.0",
@@ -8,24 +8,76 @@
   "goodSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "repro": "const r = demoLib.add(2, 2);\nassert(r === 4, \"add(2,2) should be 4, got \" + r);",
   "reproSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "runs": [
-    {
-      "version": "bad",
-      "verdict": "fail",
-      "logs": [
-        "ReproAssertionError: add(2,2) should be 4, got 5"
-      ],
-      "durationMs": 12,
-      "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    },
-    {
-      "version": "good",
-      "verdict": "pass",
-      "logs": [],
-      "durationMs": 10,
-      "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    }
-  ],
+  "green": true,
+  "reason": "STABLE_LOCAL_DIFFERENTIAL",
+  "stable": true,
+  "repeats": 5,
+  "samples": {
+    "bad": [
+      {
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4, got 5"],
+        "durationMs": 12,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4, got 5"],
+        "durationMs": 11,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4, got 5"],
+        "durationMs": 10,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4, got 5"],
+        "durationMs": 9,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: add(2,2) should be 4, got 5"],
+        "durationMs": 8,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "good": [
+      {
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 10,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 9,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 8,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 7,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "verdict": "pass",
+        "logs": [],
+        "durationMs": 6,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
   "timeline": [
     {
       "at": "2026-08-29T10:00:00Z",

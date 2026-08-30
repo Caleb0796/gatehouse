@@ -1,6 +1,84 @@
 {
   "green": false,
   "reason": "FAIL_BOTH",
+  "stable": true,
+  "repeats": 5,
+  "samples": {
+    "bad": [
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 12,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 11,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 10,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 9,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "version": "bad",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 8,
+        "bundleSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "good": [
+      {
+        "version": "good",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 10,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 9,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 8,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 7,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "version": "good",
+        "verdict": "fail",
+        "logs": ["ReproAssertionError: forced"],
+        "durationMs": 6,
+        "bundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
   "runs": [
     {
       "version": "bad",

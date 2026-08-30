@@ -64,13 +64,31 @@ try {
     timeoutMs: 1_000,
   });
   check("log-bounds", bounded.verdict === "pass" && bounded.logs.length === 100 && bounded.logs.every(log => log.length === 500), `verdict=${bounded.verdict}; count=${bounded.logs.length}; max=${Math.max(...bounded.logs.map(log => log.length))}`);
+
+  const manifestUrl = new URL("/targets/qs-500/manifest.json?gatehouse-fetch-probe=1", location.href).href;
+  const networkBlocked = await runner.run({
+    bundleSha,
+    globalName: "demoLib",
+    code: `let blocked = false; try { await fetch(${JSON.stringify(manifestUrl)}); } catch { blocked = true; } assert(blocked, "sandbox network request succeeded");`,
+    timeoutMs: 1_000,
+  });
+  check("network-blocked", networkBlocked.verdict === "pass", `verdict=${networkBlocked.verdict}; logs=${networkBlocked.logs.join("|")}`);
+
+  const importUrl = new URL("/targets/qs-500/good.js?gatehouse-import-probe=1", location.href).href;
+  const importScriptsBlocked = await runner.run({
+    bundleSha,
+    globalName: "demoLib",
+    code: `importScripts(${JSON.stringify(importUrl)}); assert(false, "worker import unexpectedly succeeded");`,
+    timeoutMs: 1_000,
+  });
+  check("importscripts-blocked", importScriptsBlocked.verdict === "error", `verdict=${importScriptsBlocked.verdict}; logs=${importScriptsBlocked.logs.join("|")}`);
 } catch (error) {
   check("harness", false, String(error && error.stack || error));
 } finally {
   runner.destroy();
 }
 
-const go = checks.length === 4 && checks.every(result => result.pass);
+const go = checks.length === 6 && checks.every(result => result.pass);
 const summary = checks.map(result => `${result.id}:${result.pass ? "PASS" : "FAIL"}`).join(" · ");
 status.textContent = `${go ? "GO" : "NO-GO"} · ${summary}`;
 document.title = `${go ? "GO" : "NO-GO"} · ${summary}`;
