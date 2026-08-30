@@ -14,9 +14,9 @@ const { manifest } = await loadTarget("qs-500");
 const cases = [
   ["assert-false", 'assert(false, "forced");', "FAIL_BOTH", false],
   ["empty", "", "PASS_BOTH", false],
-  ["timeout", "while (true) {}", "BAD_TIMEOUT", false],
+  ["timeout", "while (true) {}", "EXECUTION_ERROR", false],
   ["inverted", 'const parsed = Qs.parse("a%252Eb=c"); assert(parsed["a.b"] === "c", "bad behavior only");', "INVERTED", false],
-  ["real", manifest.demoRepros.real, "REGRESSION_DEMONSTRATED", true],
+  ["real", manifest.demoRepros.real, "STABLE_LOCAL_DIFFERENTIAL", true],
 ];
 
 const check = (id, pass, evidence) => {
@@ -44,10 +44,14 @@ for (const [id, code, reason, green] of cases) {
       typeof run.durationMs === "number" &&
       typeof run.bundleSha256 === "string"
     ));
+    const samplesValid = result.repeats === 5 && ["bad", "good"].every(version => (
+      result.samples[version].length === result.repeats &&
+      result.samples[version].every(sample => sample.version === version)
+    ));
     const responsive = id !== "timeout" || heartbeats > 0;
     check(
       id,
-      result.reason === reason && result.green === green && runsValid && responsive,
+      result.reason === reason && result.green === green && runsValid && samplesValid && responsive,
       `${result.runs[0].verdict}/${result.runs[1].verdict} → ${result.reason}; heartbeats=${heartbeats}`,
     );
   } catch (error) {
