@@ -11,6 +11,11 @@ test("CI runs logic evals against the production-CSP server before checking head
   const headers = workflow.indexOf("scripts/check-headers.sh http://127.0.0.1:8080/");
 
   assert.match(workflow, /^  eval:\n    runs-on: ubuntu-latest$/m);
+  assert.equal(
+    workflow.match(/if \[ -L node_modules \]; then unlink node_modules; fi/g)?.length,
+    2,
+    "both jobs remove the repository's local-only node_modules symlink before npm ci",
+  );
   assert.ok(server >= 0, "production-CSP dev server is started");
   assert.ok(logic > server, "logic evals run after the server starts");
   assert.ok(headers > logic, "response headers are checked after evals");

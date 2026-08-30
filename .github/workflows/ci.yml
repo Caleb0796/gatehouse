@@ -7,6 +7,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - run: if [ -L node_modules ]; then unlink node_modules; fi
       - run: npm ci
       - run: npm test
   eval:
@@ -15,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - run: if [ -L node_modules ]; then unlink node_modules; fi
       - run: npm ci
       - name: Start production-CSP dev server
         run: |
