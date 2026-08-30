@@ -9,7 +9,7 @@
   "globalName": "Qs",
   "issueUrl": "https://github.com/ljharb/qs/issues/500",
   "licenseFile": "LICENSE.qs.txt",
-  "summary": "qs 6.12.0 unintentionally enabled decodeDotInKeys by default, changing encoded OAuth-style parameter names; 6.12.1 restores the prior default.",
+  "summary": "qs 6.12.0 unintentionally turned on the decodeDotInKeys option by default, so a percent-encoded dot in a key was decoded during parsing; 6.12.1 restored the previous default.",
   "demoRepros": {
     "broken": "assert(false, \"I have not isolated the regression yet\");",
     "weak": "const parsed = Qs.parse(\"a=b\");\nassert(parsed.a === \"b\", \"basic query parsing should work\");",
