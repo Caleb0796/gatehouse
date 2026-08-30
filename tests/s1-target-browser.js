@@ -1,4 +1,4 @@
-import { judge } from "/src/sandbox/differential.js";
+import { judgePair } from "/src/sandbox/differential.js";
 import { createRunner, loadTarget } from "/src/sandbox/runner.js";
 
 document.open();
@@ -34,7 +34,7 @@ try {
   for (const [name, expected] of [
     ["broken", "FAIL_BOTH"],
     ["weak", "PASS_BOTH"],
-    ["real", "REGRESSION_DEMONSTRATED"],
+    ["real", "STABLE_LOCAL_DIFFERENTIAL"],
   ]) {
     const code = manifest.demoRepros[name];
     const badRun = await runner.run({
@@ -49,7 +49,7 @@ try {
       code,
       timeoutMs: 2_000,
     });
-    const verdict = judge(badRun, goodRun);
+    const verdict = judgePair(badRun, goodRun);
     const pass = verdict.reason === expected && verdict.green === (name === "real");
     check(name, pass, `${manifest.badVersion}:${badRun.verdict} · ${manifest.goodVersion}:${goodRun.verdict} · ${verdict.reason}`);
   }

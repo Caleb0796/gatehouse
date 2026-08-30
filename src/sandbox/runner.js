@@ -6,6 +6,16 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const TARGET_ID = /^[a-z0-9][a-z0-9._-]*$/i;
 const RUN_VERDICTS = new Set(["pass", "fail", "error", "timeout"]);
 const WATCHDOG_MS = 30_000;
+// Repeated runs filter nondeterminism and provide local in-browser evidence.
+// They are not an anti-forgery boundary; deterministic fabricated verdicts remain out of scope.
+const DIFFERENTIAL_REPEATS = 5;
+const targetSnapshots = new Map();
+
+const freezeDeep = value => {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) freezeDeep(child);
+  return Object.freeze(value);
+};
 
 const fetchText = async url => {
   const response = await fetch(url);
@@ -24,25 +34,36 @@ const verifyBundle = async (label, text, expectedSha256) => {
 
 export async function loadTarget(id) {
   if (typeof id !== "string" || !TARGET_ID.test(id)) throw new TypeError("Invalid target id");
+  if (targetSnapshots.has(id)) return targetSnapshots.get(id);
 
-  const base = `/targets/${id}`;
-  const manifestResponse = await fetch(`${base}/manifest.json`);
-  if (!manifestResponse.ok) {
-    throw new Error(`Fetch failed (${manifestResponse.status}): ${base}/manifest.json`);
+  const snapshotPromise = (async () => {
+    const base = `/targets/${id}`;
+    const manifestResponse = await fetch(`${base}/manifest.json`);
+    if (!manifestResponse.ok) {
+      throw new Error(`Fetch failed (${manifestResponse.status}): ${base}/manifest.json`);
+    }
+    const manifest = await manifestResponse.json();
+    if (!manifest || typeof manifest !== "object") throw new Error("Invalid target manifest");
+
+    const [badText, goodText] = await Promise.all([
+      fetchText(`${base}/bad.js`),
+      fetchText(`${base}/good.js`),
+    ]);
+    const [bad, good] = await Promise.all([
+      verifyBundle("bad", badText, manifest.badSha256),
+      verifyBundle("good", goodText, manifest.goodSha256),
+    ]);
+
+    return freezeDeep({ manifest, bundles: { bad, good } });
+  })();
+  targetSnapshots.set(id, snapshotPromise);
+
+  try {
+    return await snapshotPromise;
+  } catch (error) {
+    if (targetSnapshots.get(id) === snapshotPromise) targetSnapshots.delete(id);
+    throw error;
   }
-  const manifest = await manifestResponse.json();
-  if (!manifest || typeof manifest !== "object") throw new Error("Invalid target manifest");
-
-  const [badText, goodText] = await Promise.all([
-    fetchText(`${base}/bad.js`),
-    fetchText(`${base}/good.js`),
-  ]);
-  const [bad, good] = await Promise.all([
-    verifyBundle("bad", badText, manifest.badSha256),
-    verifyBundle("good", goodText, manifest.goodSha256),
-  ]);
-
-  return { manifest, bundles: { bad, good } };
 }
 
 const validBundle = bundle => (
@@ -203,28 +224,37 @@ export async function runDifferential(code, { targetId, timeoutMs = 2_000 } = {}
 
   try {
     await runner.load([bundles.bad, bundles.good]);
-    const [badRun, goodRun] = await Promise.all([
-      runner.run({
+    const badRuns = [];
+    const goodRuns = [];
+    for (let repeat = 0; repeat < DIFFERENTIAL_REPEATS; repeat += 1) {
+      badRuns.push(await runner.run({
         bundleSha: bundles.bad.sha256,
         globalName: manifest.globalName,
         code,
         timeoutMs,
-      }),
-      runner.run({
+      }));
+      goodRuns.push(await runner.run({
         bundleSha: bundles.good.sha256,
         globalName: manifest.globalName,
         code,
         timeoutMs,
-      }),
-    ]);
-    const verdict = judge(badRun, goodRun);
+      }));
+    }
+    const verdict = judge(badRuns, goodRuns);
+    const samples = {
+      bad: badRuns.map(run => ({ version: "bad", ...run, bundleSha256: bundles.bad.sha256 })),
+      good: goodRuns.map(run => ({ version: "good", ...run, bundleSha256: bundles.good.sha256 })),
+    };
 
     return {
       ...verdict,
       runs: [
-        { version: "bad", ...badRun, bundleSha256: bundles.bad.sha256 },
-        { version: "good", ...goodRun, bundleSha256: bundles.good.sha256 },
+        samples.bad.at(-1),
+        samples.good.at(-1),
       ],
+      samples,
+      repeats: DIFFERENTIAL_REPEATS,
+      stable: verdict.reason !== "UNSTABLE" && verdict.reason !== "EXECUTION_ERROR",
       reproSha256: await sha256Hex(code),
       targetId,
     };

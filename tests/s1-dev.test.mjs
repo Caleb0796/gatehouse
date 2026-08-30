@@ -32,7 +32,7 @@ test("five-case browser acceptance page keeps its script external", async () => 
 
   assert.match(page, /<script type="module" src="\/tests\/s1-dev-browser\.js"><\/script>/);
   assert.doesNotMatch(page, /<script(?:\s[^>]*)?>\s*[^<\s]/);
-  for (const reason of ["FAIL_BOTH", "PASS_BOTH", "BAD_TIMEOUT", "INVERTED", "REGRESSION_DEMONSTRATED"]) {
+  for (const reason of ["FAIL_BOTH", "PASS_BOTH", "EXECUTION_ERROR", "INVERTED", "STABLE_LOCAL_DIFFERENTIAL"]) {
     assert.match(script, new RegExp(reason));
   }
 });

@@ -16,12 +16,13 @@ test("srcdoc contains only the external runner script", () => {
 });
 
 test("loadTarget fetches local bundles and verifies both hashes", async () => {
-  const badText = "self.demo = { version: 'bad' };";
-  const goodText = "self.demo = { version: 'good' };";
-  const manifest = {
+  let badText = "self.demo = { version: 'bad' };";
+  let goodText = "self.demo = { version: 'good' };";
+  let manifest = {
     id: "demo-1",
     badSha256: sha256(badText),
     goodSha256: sha256(goodText),
+    nested: { version: "initial" },
   };
   const requested = [];
   const originalFetch = globalThis.fetch;
@@ -35,7 +36,8 @@ test("loadTarget fetches local bundles and verifies both hashes", async () => {
   };
 
   try {
-    assert.deepEqual(await loadTarget("demo-1"), {
+    const snapshot = await loadTarget("demo-1");
+    assert.deepEqual(snapshot, {
       manifest,
       bundles: {
         bad: { sha256: manifest.badSha256, text: badText },
@@ -47,6 +49,21 @@ test("loadTarget fetches local bundles and verifies both hashes", async () => {
       "/targets/demo-1/bad.js",
       "/targets/demo-1/good.js",
     ]);
+    assert.ok(Object.isFrozen(snapshot));
+    assert.ok(Object.isFrozen(snapshot.manifest));
+    assert.ok(Object.isFrozen(snapshot.manifest.nested));
+    assert.ok(Object.isFrozen(snapshot.bundles.bad));
+
+    badText = "self.demo = { version: 'changed-bad' };";
+    goodText = "self.demo = { version: 'changed-good' };";
+    manifest = {
+      id: "demo-1",
+      badSha256: sha256(badText),
+      goodSha256: sha256(goodText),
+      nested: { version: "changed" },
+    };
+    assert.strictEqual(await loadTarget("demo-1"), snapshot);
+    assert.equal(requested.length, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -66,7 +83,7 @@ test("loadTarget rejects a hash mismatch and unsafe target ids", async () => {
   };
 
   try {
-    await assert.rejects(loadTarget("demo-1"), /bad bundle SHA-256 mismatch/);
+    await assert.rejects(loadTarget("demo-mismatch"), /bad bundle SHA-256 mismatch/);
     await assert.rejects(loadTarget("../escape"), /Invalid target id/);
   } finally {
     globalThis.fetch = originalFetch;
