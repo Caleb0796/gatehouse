@@ -75,6 +75,38 @@ test("tainted draft cannot open on a later stable green verdict", async () => {
   assert.equal(state.tainted, true);
 });
 
+test("UNSTABLE verdict closes an open gate for the same draft", async () => {
+  const gate = createGate();
+  const { draftSha } = await gate.setDraft("flaky after green repro");
+  gate.onVerdict(verdict(true, "STABLE_LOCAL_DIFFERENTIAL", draftSha, true));
+
+  const state = gate.onVerdict(verdict(false, "UNSTABLE", draftSha, false));
+
+  assert.equal(state.gateOpen, false);
+  assert.equal(state.boundSha, null);
+  assert.equal(state.tainted, true);
+});
+
+test("late green verdict from an old generation cannot reopen the gate", async () => {
+  const gate = createGate();
+  const { draftSha } = await gate.setDraft("overlapping runs repro");
+  const oldGeneration = gate.beginRun();
+  const latestGeneration = gate.beginRun();
+  gate.onVerdict(
+    verdict(false, "UNSTABLE", draftSha, false),
+    latestGeneration,
+  );
+
+  const state = gate.onVerdict(
+    verdict(true, "STABLE_LOCAL_DIFFERENTIAL", draftSha, true),
+    oldGeneration,
+  );
+
+  assert.equal(state.gateOpen, false);
+  assert.equal(state.boundSha, null);
+  assert.equal(state.tainted, true);
+});
+
 test("PASS_BOTH verdict does not open the gate", async () => {
   const gate = createGate();
   const { draftSha } = await gate.setDraft("");

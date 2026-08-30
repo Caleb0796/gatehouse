@@ -162,8 +162,9 @@ export function createToolDefinitions({
         if (state.draftSha === null) {
           return { code: "NO_REPRO", message: "No draft reproduction has been written." };
         }
+        const generation = gate.beginRun();
         const verdict = await runDifferential(state.draft, { targetId: target.id });
-        gate.onVerdict(verdict);
+        gate.onVerdict(verdict, generation);
         return verdict;
       },
     },
@@ -282,6 +283,7 @@ export function createSurface({
 
   const connectedGate = {
     getState: gate.getState,
+    beginRun: gate.beginRun,
     async setDraft(code) {
       const wasOpen = gate.getState().gateOpen;
       const state = await gate.setDraft(code);
@@ -304,13 +306,30 @@ export function createSurface({
       });
       return state;
     },
-    onVerdict(verdict) {
+    onVerdict(verdict, generation) {
+      const isLatestRun = gate.isLatestRun(generation);
       const wasOpen = gate.getState().gateOpen;
-      const state = gate.onVerdict(verdict);
+      const state = gate.onVerdict(verdict, generation);
+
+      if (!isLatestRun) {
+        return state;
+      }
       const at = new Date().toISOString();
 
       eventBus.emit("run", { verdict });
       timeline = [...timeline, { at, event: "run", detail: verdict.reason }];
+      if (wasOpen && !state.gateOpen) {
+        boundVerdict = null;
+        submitController.abort();
+        submitController = null;
+        activeTools.delete("submit_report");
+        eventBus.emit("surface", {
+          change: "revoked",
+          tool: "submit_report",
+          reason: "differential not green",
+          at: Date.now(),
+        });
+      }
       if (!wasOpen && state.gateOpen) {
         boundVerdict = verdict;
         submitController = new AbortController();

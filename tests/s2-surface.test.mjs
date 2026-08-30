@@ -310,6 +310,71 @@ test("editing revokes submit_report and a later green run registers a fresh sign
   assert.equal(registrations[5].options.signal.aborted, false);
 });
 
+test("a later non-green verdict aborts the registered submit_report tool", async () => {
+  let green = true;
+  const windowObject = { location: { search: "?test=1" } };
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => ({
+    green,
+    reason: green ? "STABLE_LOCAL_DIFFERENTIAL" : "UNSTABLE",
+    stable: green,
+    reproSha256,
+  }), windowObject);
+  await surface.definitions.write_repro.execute({ code: "flaky repro" });
+  await surface.definitions.run_repro.execute({});
+  const submitSignal = registrations[4].options.signal;
+  green = false;
+
+  await surface.definitions.run_repro.execute({});
+
+  assert.equal(submitSignal.aborted, true);
+  assert.equal(surface.gate.getState().gateOpen, false);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools())
+      .some(({ name }) => name === "submit_report"),
+    false,
+  );
+  assert.equal(
+    events.some(
+      ({ type, detail }) => type === "surface"
+        && detail.change === "revoked"
+        && detail.reason === "differential not green",
+    ),
+    true,
+  );
+});
+
+test("a stale non-green verdict cannot revoke a newer green generation", async () => {
+  const pending = [];
+  const { events, registrations, surface } = setupSurface((_code, reproSha256) => (
+    new Promise((resolve) => pending.push({ resolve, reproSha256 }))
+  ));
+  await surface.definitions.write_repro.execute({ code: "overlapping runs repro" });
+  const oldRun = surface.definitions.run_repro.execute({});
+  const latestRun = surface.definitions.run_repro.execute({});
+
+  pending[1].resolve({
+    green: true,
+    reason: "STABLE_LOCAL_DIFFERENTIAL",
+    stable: true,
+    reproSha256: pending[1].reproSha256,
+  });
+  await latestRun;
+  const submitSignal = registrations[4].options.signal;
+  pending[0].resolve({
+    green: false,
+    reason: "UNSTABLE",
+    stable: false,
+    reproSha256: pending[0].reproSha256,
+  });
+
+  await oldRun;
+
+  assert.equal(surface.gate.getState().gateOpen, true);
+  assert.equal(surface.gate.getState().tainted, false);
+  assert.equal(submitSignal.aborted, false);
+  assert.equal(events.filter(({ type }) => type === "run").length, 1);
+});
+
 test("non-green runs emit run events without registering submit_report", async () => {
   const { events, registrations, surface } = setupSurface(() => ({
     green: false,
