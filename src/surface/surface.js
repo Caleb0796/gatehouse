@@ -3,7 +3,7 @@ import { createArtifactDraft } from "./artifact.js";
 import { createGate } from "./gate.js";
 
 const EXECUTION_MODEL =
-  "Repro code runs against each pinned library bundle in an isolated sandbox. An assert(condition, message) helper is provided; a repro demonstrates a bug when an assertion fails on the buggy build and passes on the good one.";
+  "Repro code runs client-side against each pinned library bundle in an isolated sandbox. An assert(condition, message) helper is provided; a local differential is reproduced when the assertion fails on the reported-bad build and passes on the comparison-good build. This is reporter-side evidence; independent replay and bundle provenance are not verified.";
 const MAX_TOOL_OUTPUT_LENGTH = 1500;
 const ALWAYS_AVAILABLE_TOOLS = [
   "get_target_info",
@@ -84,7 +84,7 @@ export function createToolDefinitions({
     get_target_info: {
       name: "get_target_info",
       description:
-        "Returns the current verification target: library name, reported-bad and last-good versions, their bundle SHA-256 hashes, and the execution model for repro code (an assert(condition, message) helper is provided; a repro demonstrates a bug by making an assertion that fails on the buggy build and passes on the good one).",
+        "Returns the single-target prototype configuration: library name, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -199,7 +199,7 @@ export function createToolDefinitions({
     submit_report: {
       name: "submit_report",
       description:
-        'Stages the verified reproduction and its differential evidence for review by the person at this page. Returns { status: "staged_awaiting_human_signature" }. Nothing is submitted anywhere until a person signs in the page UI.',
+        'Stages the reproduction and its client-side N/N differential evidence for review by the person at this page. Independent replay and bundle provenance are not verified. Returns { status: "staged_awaiting_human_signature" }. Nothing is shared anywhere until a person signs in the page UI.',
       inputSchema: {
         type: "object",
         properties: {},
@@ -214,7 +214,7 @@ export function createToolDefinitions({
         }
         const state = gate.getState();
         if (state.draftSha === null || state.draftSha !== state.boundSha) {
-          return { code: "STALE_REPRO", message: "The verified reproduction no longer matches the current draft." };
+          return { code: "STALE_REPRO", message: "The gate-bound reproduction no longer matches the current draft." };
         }
         await stageReport(state);
         return { status: "staged_awaiting_human_signature" };

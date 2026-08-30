@@ -22,7 +22,7 @@ const target = {
 
 const descriptions = {
   get_target_info:
-    "Returns the current verification target: library name, reported-bad and last-good versions, their bundle SHA-256 hashes, and the execution model for repro code (an assert(condition, message) helper is provided; a repro demonstrates a bug by making an assertion that fails on the buggy build and passes on the good one).",
+    "Returns the single-target prototype configuration: library name, reported-bad and comparison-good versions, their bundle SHA-256 comparison identifiers, and the client-side execution model. Bundle provenance and independent replay are not verified.",
   write_repro:
     "Stores a draft reproduction script for the target library. Input: { code: string } — plain JavaScript executed against the library bundle in an isolated sandbox; use the provided assert(condition, message) to state the expected correct behavior. Replaces any previous draft and returns the draft's SHA-256.",
   run_repro:
@@ -30,7 +30,7 @@ const descriptions = {
   request_human_review:
     "Signals the person at this page that the agent would like their attention on the current draft and its results — highlights the draft panel and shows an attention banner on this page so the person notices. Input: { note?: string }.",
   submit_report:
-    'Stages the verified reproduction and its differential evidence for review by the person at this page. Returns { status: "staged_awaiting_human_signature" }. Nothing is submitted anywhere until a person signs in the page UI.',
+    'Stages the reproduction and its client-side N/N differential evidence for review by the person at this page. Independent replay and bundle provenance are not verified. Returns { status: "staged_awaiting_human_signature" }. Nothing is shared anywhere until a person signs in the page UI.',
 };
 
 function setup(overrides = {}) {
@@ -98,6 +98,20 @@ test("definitions use the frozen names, descriptions, schemas, and annotations",
   }
   assert.deepEqual(definitions.get_target_info.annotations, { readOnlyHint: true });
   assert.deepEqual(definitions.run_repro.annotations, { untrustedContentHint: true });
+});
+
+test("tool copy limits claims to client-side evidence", async () => {
+  const { definitions } = setup();
+  const info = await definitions.get_target_info.execute({});
+  const copy = [
+    info.executionModel,
+    ...Object.values(definitions).map(({ description }) => description),
+  ].join(" ");
+
+  assert.doesNotMatch(copy, /last-good|demonstrat/i);
+  assert.match(copy, /single-target prototype/);
+  assert.match(copy, /comparison-good/);
+  assert.match(copy, /not verified/);
 });
 
 test("registration exposes the four always-available tools but not submit_report", () => {
