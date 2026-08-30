@@ -49,7 +49,7 @@ test("insecure context takes precedence over an exposed API", () => {
 test("setup copy contains the complete tested paths", () => {
   assert.equal(
     CHROME_COMMAND,
-    'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" <url>',
+    'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" http://localhost:8080/',
   );
   assert.equal(
     CHATGPT_SETTINGS_PATH,
