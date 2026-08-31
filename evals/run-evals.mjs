@@ -32,12 +32,32 @@ const STABLE_RUN_PAIRS = new Map([
 ]);
 const DEFAULT_ACTION_TIMEOUT_MS = 45_000;
 const REQUIRED_EXPECTATIONS = new Map([
-  ["happy-3-round", ["reasons", "gateOpen", "toolPresent", "toolCount", "stagedStatus"]],
+  ["happy-3-round", [
+    "reasons",
+    "gateOpen",
+    "toolPresent",
+    "toolCount",
+    "stagedStatus",
+    "artifactHashMatchesRun",
+    "finalTimelineEvent",
+    "replayConsistent",
+    "replayLabel",
+  ]],
   ["assert-false", ["reason", "badVerdict", "goodVerdict", "gateOpen", "toolAbsent"]],
   ["empty-repro", ["reason", "badVerdict", "goodVerdict", "gateOpen", "toolAbsent"]],
   ["edit-revokes-tool", ["reasonBeforeEdit", "toolCountBeforeEdit", "toolCountAfterEdit", "removedTool", "gateOpen"]],
-  ["stale-submit", ["reasonBeforeEdit", "submitCode", "gateOpen", "toolAbsent"]],
-  ["timeout-recovers", ["reason", "badVerdict", "pageAlive", "maxRecoveryMs", "gateOpen"]],
+  ["stale-submit", ["reasonBeforeEdit", "submitOutcomes", "gateOpen", "toolAbsent"]],
+  ["timeout-recovers", [
+    "reason",
+    "badVerdict",
+    "recoveryReason",
+    "recoveryBadVerdict",
+    "recoveryGoodVerdict",
+    "pageAlive",
+    "maxTimeoutActionMs",
+    "maxRecoveryActionMs",
+    "gateOpen",
+  ]],
   ["good-error", ["reason", "badVerdict", "goodVerdict", "gateOpen", "toolAbsent"]],
   ["bundle-sha-tamper", ["runRejected", "errorCode", "gateOpen", "toolAbsent"]],
   ["baseline-tools", ["toolCount", "toolNames", "toolAbsent"]],
@@ -49,6 +69,7 @@ const REQUIRED_EXPECTATIONS = new Map([
     "publicProjectionHasLogs",
     "receiptIdentityMatchesProjection",
     "reproHashOk",
+    "verificationLabel",
   ]],
   ["inverted", ["reason", "badVerdict", "goodVerdict", "gateOpen", "toolAbsent"]],
   ["flaky-random", [
@@ -162,6 +183,10 @@ export function parseArgs(argv) {
   return options;
 }
 
+export function shouldWriteCanonicalResults(tier) {
+  return tier === "all";
+}
+
 function printHelp() {
   console.log("Usage: node evals/run-evals.mjs --url <http(s) URL> [--tier logic|webmcp|all] [--browser chrome|chromium] [--headed]");
   console.log("       node evals/run-evals.mjs --validate");
@@ -217,6 +242,46 @@ function resolveTemplates(value, variables) {
     const replacement = getPath(variables, path.trim());
     return replacement === undefined ? match : String(replacement);
   });
+}
+
+export function classifyNativeToolRevocation(error, toolName, activeTools) {
+  if (
+    typeof toolName !== "string"
+    || activeTools.some(({ name }) => name === toolName)
+  ) {
+    return null;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const parsed = message.match(
+    /^(?:page\.evaluate: )?(UnknownError|AbortError): (.+)$/,
+  );
+  if (!parsed) return null;
+
+  const [, nativeErrorName, nativeMessage] = parsed;
+  const isKnownRevocation = (
+    nativeErrorName === "UnknownError"
+    && (
+      nativeMessage === "The operation failed for an unknown transient reason (e.g. out of memory)."
+      || nativeMessage === `Tool not found: ${toolName}`
+    )
+  ) || (
+    nativeErrorName === "AbortError"
+    && (
+      nativeMessage === "This operation was aborted"
+      || nativeMessage === "This operation was aborted."
+      || nativeMessage === "signal is aborted without reason"
+    )
+  );
+  if (!isKnownRevocation) return null;
+
+  return {
+    rejected: true,
+    source: "browser",
+    code: "WEBMCP_TOOL_REVOKED",
+    nativeErrorName,
+    message,
+  };
 }
 
 function caseUrl(baseUrl, definition) {
@@ -322,12 +387,27 @@ async function executeAction(action, state, harness, driver) {
       return driver.captureTool(resolved.name);
     case "executeCapturedTool":
       try {
-        return await driver.executeCapturedTool(
+        const result = await driver.executeCapturedTool(
           state.variables[resolved.tool],
           resolved.input ?? {},
         );
+        return result?.code === "STALE_REPRO"
+          ? { ...result, source: "application" }
+          : result;
       } catch (error) {
-        return rejected(error, "STALE_REPRO");
+        let activeTools;
+        try {
+          activeTools = await driver.getTools();
+        } catch {
+          throw error;
+        }
+        const revocation = classifyNativeToolRevocation(
+          error,
+          resolved.name,
+          activeTools,
+        );
+        if (revocation) return revocation;
+        throw error;
       }
     case "repeatRunAndObserveTools": {
       const attempts = [];
@@ -391,9 +471,12 @@ async function executeAction(action, state, harness, driver) {
         const receipt = await import("/src/inbox/receipt.js");
         return receipt.prepareReceiptShare(artifact);
       }, state.variables[resolved.artifact]);
+    case "replaySignedArtifact":
+      return harness.replaySignedArtifact();
     case "encodeReceipt": {
       const artifact = state.variables[resolved.artifact];
       const review = state.variables[resolved.review];
+      if (!review) return harness.encodeReceipt(artifact);
       return harness.page.evaluate(async ({ artifact: value, review: prepared }) => {
         const receipt = await import("/src/inbox/receipt.js");
         return receipt.encodeReceipt(value, {
@@ -405,6 +488,8 @@ async function executeAction(action, state, harness, driver) {
     }
     case "decodeReceipt":
       return harness.decodeReceipt(state.variables[resolved.receipt]);
+    case "inspectInboxReceipt":
+      return harness.inspectInboxReceipt();
     default:
       throw new Error(`Unsupported action: ${resolved.op}`);
   }
@@ -428,7 +513,7 @@ function canonicalJson(value) {
   )).join(",")}}`;
 }
 
-function evaluateLogicCase(definition, variables, finalTools) {
+function evaluateLogicCase(definition, variables, finalTools, timings) {
   const failures = [];
   const check = (actual, expected, label) => {
     if (expected !== undefined && actual !== expected) {
@@ -450,9 +535,23 @@ function evaluateLogicCase(definition, variables, finalTools) {
   } else if (definition.id === "timeout-recovers") {
     check(variables.timeoutRun?.reason, definition.expect.reason, "reason");
     check(runByVersion(variables.timeoutRun, "bad")?.verdict, definition.expect.badVerdict, "bad verdict");
+    check(variables.recoveryRun?.reason, definition.expect.recoveryReason, "recovery reason");
+    check(
+      runByVersion(variables.recoveryRun, "bad")?.verdict,
+      definition.expect.recoveryBadVerdict,
+      "recovery bad verdict",
+    );
+    check(
+      runByVersion(variables.recoveryRun, "good")?.verdict,
+      definition.expect.recoveryGoodVerdict,
+      "recovery good verdict",
+    );
     check(variables.pageProbe?.alive, definition.expect.pageAlive, "page alive");
-    if (!(variables.pageProbe?.recoveryMs < definition.expect.maxRecoveryMs)) {
-      failures.push(`recoveryMs: expected < ${definition.expect.maxRecoveryMs}, got ${variables.pageProbe?.recoveryMs}`);
+    if (!(timings.timeoutRun?.durationMs < definition.expect.maxTimeoutActionMs)) {
+      failures.push(`timeout action: expected < ${definition.expect.maxTimeoutActionMs}ms, got ${timings.timeoutRun?.durationMs}ms`);
+    }
+    if (!(timings.recoveryRun?.durationMs < definition.expect.maxRecoveryActionMs)) {
+      failures.push(`recovery action: expected < ${definition.expect.maxRecoveryActionMs}ms, got ${timings.recoveryRun?.durationMs}ms`);
     }
   } else if (definition.id === "bundle-sha-tamper") {
     const rejected = variables.result?.rejected === true || typeof variables.result?.code === "string";
@@ -487,6 +586,11 @@ function evaluateLogicCase(definition, variables, finalTools) {
       "receipt SHA-256",
     );
     check(variables.decoded?.reproHashOk, definition.expect.reproHashOk, "repro hash");
+    check(
+      variables.receiptPage?.verificationLabel,
+      definition.expect.verificationLabel,
+      "rendered verification label",
+    );
   } else {
     failures.push(`No logic evaluator for ${definition.id}`);
   }
@@ -522,7 +626,19 @@ function evaluateWebMcpCase(definition, variables, finalTools) {
       true,
       `${definition.expect.toolPresent} present`,
     );
-    check(variables.staged?.status, definition.expect.stagedStatus, "native submit status");
+    check(variables.staged?.status, definition.expect.stagedStatus, "staged status");
+    check(
+      variables.artifact?.reproSha256 === variables.realRun?.reproSha256,
+      definition.expect.artifactHashMatchesRun,
+      "signed artifact hash",
+    );
+    check(
+      variables.artifact?.timeline?.at(-1)?.event,
+      definition.expect.finalTimelineEvent,
+      "signed artifact timeline",
+    );
+    check(variables.replay?.consistent, definition.expect.replayConsistent, "replay consistency");
+    check(variables.replay?.label, definition.expect.replayLabel, "replay label");
   } else if (["flaky-random", "retry-until-lucky"].includes(definition.id)) {
     const observation = variables.observation;
     check(SHA256_RE.test(variables.draft?.reproSha256 ?? ""), true, "draft repro SHA-256");
@@ -556,7 +672,16 @@ function evaluateWebMcpCase(definition, variables, finalTools) {
     );
   } else if (definition.id === "stale-submit") {
     check(variables.greenRun?.reason, definition.expect.reasonBeforeEdit, "reason before edit");
-    check(variables.submitResult?.code, definition.expect.submitCode, "stale submit code");
+    check(
+      names(variables.toolsAfterEdit).includes("submit_report"),
+      false,
+      "submit_report after edit",
+    );
+    const controlledOutcome = definition.expect.submitOutcomes.some((expected) => (
+      variables.submitResult?.source === expected.source
+      && variables.submitResult?.code === expected.code
+    ));
+    check(controlledOutcome, true, "controlled stale submit outcome");
   } else if (definition.id === "baseline-tools") {
     check(names(variables.tools).length, definition.expect.toolCount, "baseline tool count");
     check(
@@ -617,14 +742,18 @@ async function runCase(definition, { baseUrl, harness, driver, evaluate }) {
       DEFAULT_ACTION_TIMEOUT_MS,
       `${definition.id}: final tool discovery`,
     );
-    const failures = evaluate(definition, state.variables, finalTools);
+    const failures = evaluate(definition, state.variables, finalTools, state.timings);
+    const successDetails = definition.id === "timeout-recovers"
+      ? `expectations met; timeout action ${state.timings.timeoutRun.durationMs}ms; recovery action ${state.timings.recoveryRun.durationMs}ms`
+      : "expectations met";
     return {
       id: definition.id,
       tier: definition.tier,
       mustFail: definition.mustFail === true,
       status: failures.length === 0 ? "pass" : "fail",
       durationMs: Date.now() - startedAt,
-      details: failures.length === 0 ? "expectations met" : failures.join("; "),
+      timings: state.timings,
+      details: failures.length === 0 ? successDetails : failures.join("; "),
     };
   } finally {
     await removeRunnerMock();
@@ -734,7 +863,11 @@ async function main() {
       cases,
       generatedAt: new Date().toISOString(),
     });
-    await writeFile(join(EVALS_DIR, "RESULTS.md"), markdown);
+    if (shouldWriteCanonicalResults(options.tier)) {
+      await writeFile(join(EVALS_DIR, "RESULTS.md"), markdown);
+    } else {
+      console.log("Partial tier run; evals/RESULTS.md was not updated");
+    }
     const passed = results.filter(({ status }) => status === "pass").length;
     const failed = results.filter(({ status }) => status === "fail").length;
     console.log(`${passed}/${selected.length} selected cases passed; ${failed} failed`);

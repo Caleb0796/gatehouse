@@ -216,6 +216,21 @@ test("stops decompression once output exceeds the 32KB artifact limit", async ()
   });
 });
 
+test("rejects a compression bomb above the decompressed artifact limit", async () => {
+  const artifact = await validArtifact();
+  artifact.repro = "a".repeat(70 * 1024);
+  artifact.reproSha256 = await sha256Hex(artifact.repro);
+  const compressed = deflateRawSync(JSON.stringify(artifact));
+  assert.ok(compressed.byteLength < 64 * 1024);
+
+  assert.deepEqual(await encodeReceipt(artifact), {
+    error: "receipt artifact does not match the required schema v2",
+  });
+  assert.deepEqual(await decodeReceipt(`#a=${base64Url(compressed)}`), {
+    error: "receipt data exceeds the 32KB decompressed limit",
+  });
+});
+
 test("returns an error instead of throwing for a damaged payload", async () => {
   const result = await decodeReceipt("#a=bm90LWRlZmxhdGU");
   assert.deepEqual(result, { error: "receipt payload is invalid" });

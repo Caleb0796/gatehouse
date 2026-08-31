@@ -258,7 +258,7 @@ export function createToolDefinitions({
     submit_report: {
       name: "submit_report",
       description:
-        'Stages the reproduction and its client-side N/N differential evidence for review by the person at this page. Independent replay and bundle provenance are not verified. Returns { status: "staged_awaiting_human_signature" }. Nothing is shared anywhere until a person signs in the page UI.',
+        'Stages the reproduction and its client-side N/N differential evidence for review by the person at this page. Independent replay and bundle provenance are not verified. Returns { status: "staged_awaiting_local_approval" }. Nothing is shared anywhere until the page records local approval.',
       inputSchema: {
         type: "object",
         properties: {},
@@ -276,7 +276,7 @@ export function createToolDefinitions({
           return { code: "STALE_REPRO", message: "The gate-bound reproduction no longer matches the current draft." };
         }
         await stageReport(state);
-        return { status: "staged_awaiting_human_signature" };
+        return { status: "staged_awaiting_local_approval" };
       },
     },
   };
@@ -331,40 +331,47 @@ export function createSurface({
   stageReport,
   eventBus = bus,
   windowObject = typeof window === "undefined" ? undefined : window,
+  gate: stateGate = createGate(),
 }) {
-  const gate = createGate();
+  const gate = stateGate;
   let submitController = null;
   let definitions;
   let toolTable;
   let boundVerdict = null;
   let timeline = [];
+  let draftMutations = Promise.resolve();
   const activeTools = new Set(ALWAYS_AVAILABLE_TOOLS);
 
   const connectedGate = {
     getState: gate.getState,
     beginRun: gate.beginRun,
-    async setDraft(code) {
-      const invalid = new TextEncoder().encode(code).byteLength > MAX_REPRO_BYTES;
-      const state = await gate.setDraft(invalid ? "" : code);
-      boundVerdict = null;
+    setDraft(code, { source = "tool" } = {}) {
+      const update = draftMutations.then(async () => {
+        const invalid = new TextEncoder().encode(code).byteLength > MAX_REPRO_BYTES;
+        const state = await gate.setDraft(invalid ? "" : code);
+        boundVerdict = null;
 
-      if (submitController !== null) {
-        submitController.abort();
-        submitController = null;
-        activeTools.delete("submit_report");
-        eventBus.emit("surface", {
-          change: "revoked",
-          tool: "submit_report",
-          reason: "repro edited",
-          at: Date.now(),
+        if (submitController !== null) {
+          submitController.abort();
+          submitController = null;
+          activeTools.delete("submit_report");
+          eventBus.emit("surface", {
+            change: "revoked",
+            tool: "submit_report",
+            reason: "repro edited",
+            at: Date.now(),
+          });
+        }
+        eventBus.emit("draft", {
+          reproSha256: state.draftSha,
+          length: code.length,
+          source,
+          ...(invalid ? { invalid: true } : {}),
         });
-      }
-      eventBus.emit("draft", {
-        reproSha256: state.draftSha,
-        length: code.length,
-        ...(invalid ? { invalid: true } : {}),
+        return invalid ? { ...state, invalid: true } : state;
       });
-      return invalid ? { ...state, invalid: true } : state;
+      draftMutations = update.catch(() => {});
+      return update;
     },
     onVerdict(verdict, generation) {
       const isLatestRun = gate.isLatestRun(generation);
@@ -382,6 +389,9 @@ export function createSurface({
         event: "run",
         detail: verdict.reason,
       });
+      if (state.gateOpen && verdict.reproSha256 === state.draftSha) {
+        boundVerdict = verdict;
+      }
       if (wasOpen && !state.gateOpen) {
         boundVerdict = null;
         submitController.abort();
@@ -395,7 +405,6 @@ export function createSurface({
         });
       }
       if (!wasOpen && state.gateOpen) {
-        boundVerdict = verdict;
         submitController = new AbortController();
         modelContext.registerTool(toolTable.submit_report.definition, {
           signal: submitController.signal,

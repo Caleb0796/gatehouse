@@ -74,7 +74,7 @@ let gateOpen = false;
 const verdicts = [
   { green: false, reason: "FAIL_BOTH" },
   { green: false, reason: "PASS_BOTH" },
-  { green: true, reason: "REGRESSION_DEMONSTRATED" },
+  { green: true, reason: "STABLE_LOCAL_DIFFERENTIAL" },
 ];
 
 function getToolTable() {
@@ -120,7 +120,7 @@ function getToolTable() {
       execute: async () => {
         const artifactDraft = { targetId: target.id, repro: draft };
         bus.emit("staged", { artifactDraft });
-        return { status: "staged_awaiting_human_signature" };
+        return { status: "staged_awaiting_local_approval" };
       },
     };
   }

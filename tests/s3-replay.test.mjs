@@ -177,3 +177,14 @@ test("defines visible green and yellow replay frames in an external stylesheet",
   assert.match(styles, /\.replay-result\.consistent[\s\S]*border-color: #2e7d32/);
   assert.match(styles, /\.replay-result\.changed[\s\S]*border-color: #b7791f/);
 });
+
+test("allows long SHA and log values to shrink and wrap inside both replay columns", async () => {
+  const styles = await readFile(
+    new URL("../src/inbox/replay.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(styles, /grid-template-columns: repeat\(auto-fit, minmax\(min\(16rem, 100%\), 1fr\)\)/);
+  assert.match(styles, /\.replay-columns > section,[\s\S]*\.replay-columns dd \{[\s\S]*min-width: 0/);
+  assert.match(styles, /\.replay-columns dd \{[\s\S]*overflow-wrap: anywhere/);
+  assert.match(styles, /\.replay-columns dd \{[\s\S]*white-space: pre-wrap/);
+});

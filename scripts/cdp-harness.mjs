@@ -170,9 +170,32 @@ export async function launchChromeHarness({
       }, { times: 1 });
     };
 
-    const readSignedArtifact = () => page.evaluate(
-      () => window.__gatehouseEvalSignedArtifact,
-    );
+    const readSignedArtifact = async () => {
+      await page.waitForFunction(
+        () => window.__gatehouseEvalSignedArtifact !== null,
+      );
+      return page.evaluate(() => window.__gatehouseEvalSignedArtifact);
+    };
+
+    const replaySignedArtifact = async () => {
+      const replayButton = page.locator(".inbox-replay button");
+      if (await replayButton.count() !== 1) {
+        throw new Error("Expected exactly one signed-artifact Replay button");
+      }
+      await replayButton.click();
+      await page.waitForFunction(() => {
+        const output = document.querySelector(".inbox-replay > div");
+        return output?.classList.contains("consistent")
+          || output?.classList.contains("changed");
+      });
+      return page.evaluate(() => {
+        const output = document.querySelector(".inbox-replay > div");
+        return {
+          consistent: output.classList.contains("consistent"),
+          label: output.querySelector("p")?.textContent ?? output.textContent,
+        };
+      });
+    };
 
     const encodeReceipt = (artifact) => page.evaluate(async (value) => {
       const receipt = await import("/src/inbox/receipt.js");
@@ -195,6 +218,34 @@ export async function launchChromeHarness({
       }
       return { error: "receipt has neither a URL nor importable JSON" };
     }, receipt);
+
+    const inspectInboxReceipt = async () => {
+      const openReceipt = page.locator(".inbox-receipt a", { hasText: "Open receipt" });
+      await openReceipt.waitFor({ state: "visible" });
+      if (await openReceipt.count() !== 1) {
+        throw new Error("Expected exactly one inbox Open receipt link");
+      }
+      const [receiptPage] = await Promise.all([
+        context.waitForEvent("page"),
+        openReceipt.click(),
+      ]);
+      try {
+        await receiptPage.waitForLoadState("domcontentloaded");
+        await receiptPage.waitForFunction(() => {
+          const verification = document.querySelector("#receipt-root .verification");
+          return verification && verification.textContent.length > 0;
+        });
+        return receiptPage.evaluate(() => {
+          const verification = document.querySelector("#receipt-root .verification");
+          return {
+            verificationLabel: verification.textContent,
+            verified: verification.classList.contains("verified"),
+          };
+        });
+      } finally {
+        await receiptPage.close();
+      }
+    };
 
     const click = async (selector) => {
       const locator = page.locator(selector);
@@ -226,6 +277,7 @@ export async function launchChromeHarness({
       click,
       decodeReceipt,
       encodeReceipt,
+      inspectInboxReceipt,
       interceptBundle,
       navigate,
       probePage: () => page.evaluate(async () => {
@@ -238,6 +290,7 @@ export async function launchChromeHarness({
         };
       }),
       readSignedArtifact,
+      replaySignedArtifact,
       reset: () => navigate(targetUrl),
       close: () => browser.close(),
     };

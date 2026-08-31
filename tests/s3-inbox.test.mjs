@@ -5,6 +5,7 @@ import {
   createInboxView,
   INBOX_STORAGE_KEY,
   init,
+  initReceiptShare,
   loadInbox,
   storeArtifact,
 } from "../src/inbox/inbox.js";
@@ -17,8 +18,12 @@ const fixture = JSON.parse(await readFile(
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
+    setItemCalls: [],
     getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
+    setItem(key, value) {
+      this.setItemCalls.push({ key, value });
+      values.set(key, value);
+    },
   };
 }
 
@@ -30,6 +35,7 @@ class Element {
     this.listeners = {};
     this.hidden = false;
     this.textContent = "";
+    this.attributes = new Map();
   }
 
   append(...children) {
@@ -43,10 +49,23 @@ class Element {
   addEventListener(type, listener) {
     this.listeners[type] = listener;
   }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
 }
 
 function fakeDocument() {
   const document = {
+    baseURI: "https://gatehouse.test/app/index.html",
     createElement: tagName => new Element(document, tagName),
   };
   return document;
@@ -123,7 +142,7 @@ test("builds a newest-first list with verdict badges", () => {
   ]);
 });
 
-test("schema v2 renders and replays repeated samples without reading a missing runs field", async () => {
+test("signed events reload and render persisted v2 samples without storing twice", async () => {
   const storage = memoryStorage();
   const handlers = new Map();
   const eventBus = {
@@ -160,6 +179,7 @@ test("schema v2 renders and replays repeated samples without reading a missing r
 
   assert.equal(root.hidden, false);
   assert.deepEqual(loadInbox(storage), [artifact]);
+  assert.equal(storage.setItemCalls.length, 1);
   const rendered = textTree(root);
   assert.match(rendered, /STABLE_LOCAL_DIFFERENTIAL/);
   assert.match(rendered, /gatehouse-demo-lib · demo-lib-001/);
@@ -171,15 +191,31 @@ test("schema v2 renders and replays repeated samples without reading a missing r
   const replay = findByTag(root, "button").find(button => button.textContent === "Replay");
   await replay.listeners.click();
   assert.match(textTree(root), /Replay matches recorded samples/);
+  assert.match(rendered, /Locally approved reports/);
+  assert.match(rendered, /Local approval recorded at/);
+  assert.doesNotMatch(rendered, /Signed report inbox|Signed at/);
 
   const second = schemaV2Artifact();
   second.targetId = "newest-report";
   assert.deepEqual(storeArtifact(second, storage), { ok: true });
   handlers.get("signed")({ artifact: second });
+  assert.equal(storage.setItemCalls.length, 2);
   assert.match(textTree(root), /gatehouse-demo-lib · newest-report/);
-  findByTag(root, "button")[1].listeners.click();
+  let listButtons = findByTag(root, "button").slice(0, 2);
+  assert.equal(listButtons[0].getAttribute("aria-current"), "true");
+  assert.equal(listButtons[1].getAttribute("aria-current"), null);
+  assert.match(textTree(listButtons[0]), /Selected/);
+  assert.doesNotMatch(textTree(listButtons[1]), /Selected/);
+
+  listButtons[1].listeners.click();
+  listButtons = findByTag(root, "button").slice(0, 2);
+  assert.equal(listButtons[0].getAttribute("aria-current"), null);
+  assert.equal(listButtons[1].getAttribute("aria-current"), "true");
+  assert.doesNotMatch(textTree(listButtons[0]), /Selected/);
+  assert.match(textTree(listButtons[1]), /Selected/);
   const detail = findByTag(root, "article")[0];
   assert.match(textTree(detail), /gatehouse-demo-lib · demo-lib-001/);
+  assert.equal(findByTag(root, "time")[1].dateTime, fixture.signedAt);
 
   unsubscribe();
   assert.equal(handlers.has("signed"), false);
@@ -191,7 +227,7 @@ test("signed events only reload artifacts already persisted by signing", () => {
   const setItem = storage.setItem;
   storage.setItem = (...args) => {
     writes += 1;
-    setItem(...args);
+    setItem.apply(storage, args);
   };
   const handlers = new Map();
   const eventBus = {
@@ -214,38 +250,28 @@ test("signed events only reload artifacts already persisted by signing", () => {
   assert.equal(root.hidden, false);
 });
 
-test("sharing shows the exact public preview and requires a second confirmation", async () => {
-  const storage = memoryStorage();
+test("sharing prepares the public projection before exposing receipt controls", async () => {
   const artifact = schemaV2Artifact();
-  artifact.repro = 'fetch("http://127.0.0.1/internal", { headers: { Authorization: "Bearer token" } }); // ghp_abcdefgh';
-  assert.deepEqual(storeArtifact(artifact, storage), { ok: true });
   const document = fakeDocument();
   const root = new Element(document, "section");
-  init(root, {
-    storage,
-    bus: { on: () => () => {} },
-    createObjectURL: () => "blob:receipt",
+  let prepared = false;
+  await initReceiptShare(root, artifact, {
+    prepareReceiptShare: async value => {
+      assert.equal(value, artifact);
+      prepared = true;
+      return { receiptId: "v2-0123456789abcdef" };
+    },
+    encodeReceipt: async (value, options) => {
+      assert.equal(value, artifact);
+      assert.equal(prepared, true);
+      assert.deepEqual(options, {
+        confirmed: true,
+        expectedReceiptId: "v2-0123456789abcdef",
+      });
+      return { url: "receipt.html#a=fixture&h=" + "d".repeat(64) };
+    },
   });
-  const share = findByTag(root, "section").find(section => section.className === "inbox-share");
-  const reviewButton = findByTag(share, "button")
-    .find(button => button.textContent === "Review receipt before sharing");
-
-  await reviewButton.listeners.click();
-
-  const reviewed = textTree(share);
-  assert.match(reviewed, /shared with third parties/);
-  assert.match(reviewed, /Sample logs are excluded by default/);
-  assert.match(reviewed, /Possible GitHub token/);
-  assert.match(reviewed, /Possible bearer credential/);
-  assert.match(reviewed, /Possible private-network URL/);
-  assert.doesNotMatch(reviewed, /"logs"/);
-  const confirmButton = findByTag(share, "button")
-    .find(button => button.textContent === "Confirm and create receipt");
-  assert.ok(confirmButton);
-
-  await confirmButton.listeners.click();
-
-  assert.match(textTree(share), /Open receipt|Download receipt JSON/);
+  assert.match(textTree(root), /Open receipt/);
 });
 
 test("marks schema v1 and incomplete v2 evidence without upgrading either to stable", () => {
@@ -267,11 +293,87 @@ test("marks schema v1 and incomplete v2 evidence without upgrading either to sta
 test("ignores corrupt stored inbox data", () => {
   assert.deepEqual(loadInbox(memoryStorage({ [INBOX_STORAGE_KEY]: "{" })), []);
   assert.deepEqual(loadInbox(memoryStorage({ [INBOX_STORAGE_KEY]: "{}" })), []);
-
   const storage = memoryStorage({
     [INBOX_STORAGE_KEY]: JSON.stringify([null, 42, {}, fixture]),
   });
   assert.deepEqual(loadInbox(storage), [fixture]);
   assert.deepEqual(storeArtifact(fixture, storage), { ok: true });
   assert.deepEqual(loadInbox(storage), [fixture, fixture]);
+});
+
+test("offers a small signed artifact as an openable and copyable receipt link", async () => {
+  const document = fakeDocument();
+  const root = new Element(document, "section");
+  const copied = [];
+  await initReceiptShare(root, fixture, {
+    clipboard: { writeText: async value => copied.push(value) },
+  });
+
+  const open = findByTag(root, "a")[0];
+  const copy = findByTag(root, "button")[0];
+  assert.match(open.href, /^https:\/\/gatehouse\.test\/app\/receipt\.html#a=[A-Za-z0-9_-]+&h=[a-f0-9]{64}$/);
+  assert.equal(open.textContent, "Open receipt");
+  assert.equal(copy.textContent, "Copy receipt link");
+  assert.match(textTree(root), /fits the 6 KB sharing limit/);
+
+  await copy.listeners.click();
+  assert.deepEqual(copied, [open.href]);
+  assert.match(textTree(root), /Receipt link copied/);
+});
+
+test("explains and downloads the JSON fallback when a receipt exceeds 6 KB", async () => {
+  const document = fakeDocument();
+  const root = new Element(document, "section");
+  const revoked = [];
+  const json = JSON.stringify(fixture);
+  const cleanup = await initReceiptShare(root, fixture, {
+    encodeReceipt: async () => ({ download: json }),
+    createObjectURL: blob => {
+      assert.equal(blob.type, "application/json");
+      assert.equal(blob.size, new Blob([json]).size);
+      return "blob:receipt-json";
+    },
+    revokeObjectURL: value => revoked.push(value),
+  });
+
+  const download = findByTag(root, "a")[0];
+  assert.equal(download.href, "blob:receipt-json");
+  assert.equal(download.download, "gatehouse-receipt-demo-lib-001.json");
+  assert.equal(download.textContent, "Download receipt JSON");
+  assert.match(textTree(root), /exceeds the 6 KB link limit/);
+  assert.match(textTree(root), /share the JSON file instead/);
+
+  cleanup();
+  assert.deepEqual(revoked, ["blob:receipt-json"]);
+});
+
+test("releases generated detail downloads on redraw and dispose", () => {
+  const storage = memoryStorage();
+  const handlers = new Map();
+  const eventBus = {
+    on(type, handler) {
+      handlers.set(type, handler);
+      return () => handlers.delete(type);
+    },
+  };
+  const document = fakeDocument();
+  const root = new Element(document, "section");
+  const revoked = [];
+  let nextBlob = 0;
+  const unsubscribe = init(root, {
+    storage,
+    bus: eventBus,
+    encodeReceipt: async () => ({ url: "receipt.html#a=fixture" }),
+    createObjectURL: () => `blob:adopt-${nextBlob += 1}`,
+    revokeObjectURL: value => revoked.push(value),
+  });
+
+  storeArtifact(fixture, storage);
+  handlers.get("signed")({ artifact: fixture });
+  storeArtifact(structuredClone(fixture), storage);
+  handlers.get("signed")({ artifact: fixture });
+  assert.deepEqual(revoked, ["blob:adopt-1"]);
+
+  unsubscribe();
+  assert.deepEqual(revoked, ["blob:adopt-1", "blob:adopt-2"]);
 });

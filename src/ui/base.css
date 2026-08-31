@@ -33,10 +33,19 @@ body > header {
 }
 
 body > main {
+  align-items: start;
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
   padding: 1rem 0;
+}
+
+.workflow,
+.side-rail {
+  align-content: start;
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
 }
 
 #target-panel,
@@ -49,26 +58,6 @@ body > main {
   border-radius: 0.35rem;
   min-width: 0;
   padding: 1.1rem;
-}
-
-#target-panel,
-#editor-panel,
-#run-panel,
-#inbox-root {
-  grid-column: 1;
-}
-
-#timeline,
-#sign-panel {
-  grid-column: 2;
-}
-
-#timeline {
-  grid-row: 1 / span 3;
-}
-
-#sign-panel {
-  align-self: start;
 }
 
 h1,
@@ -183,20 +172,50 @@ button:disabled {
   padding: 0.65rem;
 }
 
+.sign-panel__review,
+.sign-panel__review dl,
+.sign-panel__review dd,
+.sign-panel__review pre {
+  max-width: 100%;
+  min-width: 0;
+}
+
 .sign-panel__review {
-  border-top: 1px solid var(--line);
-  margin-top: 1rem;
-  padding-top: 1rem;
+  border-block: 1px solid var(--line);
+  margin-bottom: 1rem;
+  padding-block: 1rem;
 }
 
-.sign-panel__review-summary {
+.sign-panel__review[hidden] {
+  display: none;
+}
+
+.sign-panel__review h3 {
+  margin: 0 0 0.5rem;
+}
+
+.sign-panel__review dl {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0 0 0.8rem;
+}
+
+.sign-panel__review dt {
   color: var(--muted);
-  white-space: pre-wrap;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
-.sign-panel__review-repro {
-  max-height: 14rem;
+.sign-panel__review dd {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  margin: 0 0 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.sign-panel__review pre {
+  margin: 0;
   overflow: auto;
+  overflow-wrap: anywhere;
   padding: 0.75rem;
   white-space: pre-wrap;
 }
@@ -205,6 +224,81 @@ button:disabled {
   max-width: 100%;
   overflow: auto;
   padding: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inbox-list,
+.inbox-list > li,
+.inbox-list > li > button,
+.inbox-detail,
+.inbox-detail > section,
+.inbox-detail dl,
+.inbox-detail dd {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.inbox-list {
+  display: grid;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+}
+
+.inbox-list > li > button {
+  display: grid;
+  gap: 0.35rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+  width: 100%;
+}
+
+.inbox-list > li > button.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0.25rem 0 var(--accent);
+}
+
+.inbox-list__title,
+.inbox-list__time {
+  grid-column: 1 / -1;
+}
+
+.inbox-list__title,
+.inbox-list__time,
+.verdict-badge,
+.inbox-list__selected,
+.inbox-detail h3,
+.inbox-detail dd {
+  overflow-wrap: anywhere;
+}
+
+.inbox-list__selected {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 800;
+  justify-self: end;
+}
+
+.inbox-list__time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.inbox-detail dl {
+  display: grid;
+  gap: 0.4rem 1rem;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+}
+
+.inbox-detail dt {
+  font-weight: 700;
+}
+
+.inbox-detail dd {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -232,14 +326,17 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  #target-panel,
-  #editor-panel,
-  #run-panel,
-  #timeline,
-  #sign-panel,
-  #inbox-root {
+  .workflow,
+  .side-rail {
     grid-column: 1;
-    grid-row: auto;
+  }
+
+  .inbox-detail dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inbox-detail dd {
+    margin-bottom: 0.5rem;
   }
 }
 
@@ -271,6 +368,11 @@ button:disabled {
   gap: 0.35rem;
 }
 
+.env-banner__setup > summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
 .env-banner__title {
   font-size: 1.15rem;
   letter-spacing: 0.04em;
@@ -300,6 +402,8 @@ button:disabled {
 .demo-prompt {
   background: #eef5ff;
   border: 1px solid #9bbbe5;
+  color: #172033;
+  color-scheme: light;
   display: grid;
   gap: 0.65rem;
   padding: 1rem;
@@ -311,6 +415,9 @@ button:disabled {
 }
 
 .demo-prompt__copy {
+  background: #fff;
+  border-color: #6f86a8;
+  color: #172033;
   cursor: pointer;
   font-weight: 700;
   justify-self: start;
@@ -340,6 +447,7 @@ button:disabled {
   background: #fbfaf7;
   border: 1px solid #d8d4ca;
   color: #25231f;
+  min-width: 0;
   padding: 1rem;
 }
 
@@ -402,6 +510,7 @@ button:disabled {
   display: grid;
   gap: 0.2rem;
   margin-bottom: 0.8rem;
+  min-width: 0;
   padding: 0 0.65rem;
 }
 
@@ -413,6 +522,7 @@ button:disabled {
 
 .timeline__summary {
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .timeline__time {

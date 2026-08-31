@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 
 const retiredReason = ["REGRESSION", "DEMONSTRATED"].join("_");
+const exactClaims = [
+  ["machine", "verified"].join("-"),
+  ["verified", "report"].join(" "),
+  ["impossible", "without"].join(" "),
+  ["security", "gate"].join(" "),
+  ["last", "good"].join("-"),
+  ["maintainers", "receive"].join(" "),
+  retiredReason,
+];
 const bannedClaims = new RegExp(
-  `machine-verified|verified report|impossible without|security gate|last-good|maintainers receive|${retiredReason}|\\bdemonstrat(?:e|es|ed|ing|ion|ions)\\b`,
+  `${exactClaims.join("|")}|\\bdemonstrat(?:e|es|ed|ing|ion|ions)\\b`,
   "i",
 );
 

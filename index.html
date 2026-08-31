@@ -4,19 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gatehouse — executed, replayable bug reports</title>
-<meta name="description" content="Verify open-source regressions against pinned bad and good builds before a report can be signed.">
+<meta name="description" content="Verify open-source regressions against pinned bad and good builds before a report can be locally approved and saved.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3EG%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/src/ui/base.css">
 </head>
 <body>
 <header id="env-banner"></header>
 <main>
-  <section id="target-panel"></section>
-  <section id="editor-panel"></section>
-  <section id="run-panel"></section>
-  <aside id="timeline"></aside>
-  <section id="sign-panel"></section>
-  <section id="inbox-root" hidden></section>
+  <div class="workflow">
+    <section id="target-panel"></section>
+    <section id="editor-panel"></section>
+    <section id="run-panel"></section>
+    <section id="inbox-root" hidden></section>
+  </div>
+  <aside class="side-rail" aria-label="Verification status">
+    <section id="sign-panel"></section>
+    <section id="timeline"></section>
+  </aside>
 </main>
 <footer id="scoreboard"></footer>
 <script type="module" src="/src/surface/app.js"></script>

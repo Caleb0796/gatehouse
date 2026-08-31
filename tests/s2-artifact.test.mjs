@@ -70,6 +70,33 @@ function buttonStub() {
   };
 }
 
+function reviewStub() {
+  const document = {
+    createElement(tagName) {
+      return {
+        tagName,
+        textContent: "",
+        children: [],
+        append(...children) {
+          this.children.push(...children);
+        },
+      };
+    },
+  };
+  return {
+    ownerDocument: document,
+    hidden: true,
+    children: [],
+    replaceChildren(...children) {
+      this.children = children;
+    },
+  };
+}
+
+function textTree(node) {
+  return [node.textContent, ...(node.children ?? []).flatMap(textTree)].join(" ");
+}
+
 const storeSuccessfully = async () => ({ ok: true });
 
 async function staged() {
@@ -108,7 +135,7 @@ test("signed artifacts contain every SubmissionArtifact field", async () => {
     eventBus,
     now: () => new Date("2026-08-29T20:01:00.000Z"),
     userAgent: () => "test-agent",
-    storeArtifact: storeSuccessfully,
+    persistArtifact: storeSuccessfully,
   });
 
   assert.deepEqual(Object.keys(artifact).sort(), [
@@ -151,7 +178,7 @@ test("artifact repro and all pinned hashes match the staged evidence", async () 
     eventBus: recordingBus(),
     now: () => new Date("2026-08-29T20:01:00.000Z"),
     userAgent: () => "test-agent",
-    storeArtifact: storeSuccessfully,
+    persistArtifact: storeSuccessfully,
   });
 
   assert.equal(artifact.reproSha256, gate.getState().draftSha);
@@ -195,7 +222,7 @@ test("signing rechecks every sample hash before storage", async () => {
       eventBus,
       now: () => new Date("2026-08-29T20:01:00.000Z"),
       userAgent: () => "test-agent",
-      storeArtifact: async () => {
+      persistArtifact: async () => {
         storeCalls += 1;
         return { ok: true };
       },
@@ -249,7 +276,7 @@ test("signing cannot push the final artifact above 32KB", async () => {
       eventBus,
       now: () => new Date("2026-08-29T20:01:00.000Z"),
       userAgent: () => "é".repeat(17_000),
-      storeArtifact: storeSuccessfully,
+      persistArtifact: storeSuccessfully,
     }),
     /32KB size limit/,
   );
@@ -288,7 +315,7 @@ test("signing waits for inbox confirmation before showing success", async () => 
   const button = buttonStub();
   const status = { textContent: "" };
   let confirmStore;
-  const storeArtifact = () => new Promise(resolve => {
+  const persistArtifact = () => new Promise(resolve => {
     confirmStore = resolve;
   });
   const dispose = initSigning({
@@ -298,20 +325,21 @@ test("signing waits for inbox confirmation before showing success", async () => 
     eventBus,
     now: () => new Date("2026-08-29T20:03:00.000Z"),
     userAgent: () => "test-agent",
-    storeArtifact,
+    persistArtifact,
   });
   eventBus.emit("staged", { artifactDraft });
 
   const signing = button.click();
 
   assert.equal(button.disabled, true);
-  assert.equal(status.textContent, "待人工审阅");
+  assert.equal(status.textContent, "Awaiting local approval");
   assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
 
+  await Promise.resolve();
   confirmStore({ ok: true });
   await signing;
 
-  assert.equal(status.textContent, "已签名");
+  assert.equal(status.textContent, "Locally approved");
   assert.equal(button.disabled, true);
   assert.equal(eventBus.events.filter(({ type }) => type === "signed").length, 1);
   dispose();
@@ -322,28 +350,24 @@ test("staging shows the exact artifact and evidence before enabling signature", 
   const eventBus = recordingBus();
   const button = buttonStub();
   const status = { textContent: "" };
-  const review = {
-    root: { hidden: true },
-    repro: { textContent: "" },
-    summary: { textContent: "" },
-  };
+  const review = reviewStub();
   initSigning({
     button,
     status,
     review,
     getGateState: gate.getState,
     eventBus,
-    storeArtifact: storeSuccessfully,
+    persistArtifact: storeSuccessfully,
   });
 
   eventBus.emit("staged", { artifactDraft });
 
-  assert.equal(review.root.hidden, false);
-  assert.equal(review.repro.textContent, artifactDraft.repro);
-  assert.match(review.summary.textContent, new RegExp(artifactDraft.reproSha256));
-  assert.match(review.summary.textContent, /Reported build 1\.1\.0: 5\/5 failed/);
-  assert.match(review.summary.textContent, /Reference build 1\.0\.0: 5\/5 passed/);
-  assert.equal(status.textContent, "待人工审阅");
+  assert.equal(review.hidden, false);
+  assert.match(textTree(review), new RegExp(artifactDraft.reproSha256));
+  assert.match(textTree(review), /Reported-bad build 1\.1\.0/);
+  assert.match(textTree(review), /Comparison build 1\.0\.0/);
+  assert.match(textTree(review), new RegExp(artifactDraft.repro.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(status.textContent, "Awaiting local approval");
   assert.equal(button.disabled, false);
 });
 
@@ -361,7 +385,7 @@ test("storage failure keeps the staged artifact available for retry", async () =
     eventBus,
     now: () => new Date("2026-08-29T20:04:00.000Z"),
     userAgent: () => "test-agent",
-    storeArtifact: async artifact => {
+    persistArtifact: async artifact => {
       storedArtifacts.push(artifact);
       return storeResult;
     },
@@ -371,17 +395,68 @@ test("storage failure keeps the staged artifact available for retry", async () =
   const failed = await button.click();
 
   assert.equal(failed.code, "ARTIFACT_STORE_FAILED");
-  assert.equal(status.textContent, "签名失败：QuotaExceededError: quota full");
+  assert.equal(status.textContent, "Local save failed · try again");
   assert.equal(button.disabled, false);
   assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
 
   storeResult = { ok: true };
   await button.click();
 
-  assert.equal(status.textContent, "已签名");
+  assert.equal(status.textContent, "Locally approved");
   assert.equal(button.disabled, true);
   assert.equal(storedArtifacts.length, 2);
   assert.equal(storedArtifacts[0].reproSha256, artifactDraft.reproSha256);
   assert.equal(storedArtifacts[1].reproSha256, artifactDraft.reproSha256);
   assert.equal(eventBus.events.filter(({ type }) => type === "signed").length, 1);
+});
+
+test("an editor value awaiting hashing cannot approve the old staged artifact", async () => {
+  const { gate, artifactDraft } = await staged();
+  const eventBus = recordingBus();
+
+  const result = await signArtifact({
+    artifactDraft,
+    gateState: gate.getState(),
+    currentDraft: "assert(add(3, 3) === 6)",
+    persistArtifact: async () => assert.fail("stale artifacts must not be persisted"),
+    eventBus,
+    now: () => new Date("2026-08-29T20:02:00.000Z"),
+    userAgent: () => "test-agent",
+  });
+
+  assert.equal(result.code, "STALE_REPRO");
+  assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
+});
+
+test("approval waits for the pending editor draft before its click-time check", async () => {
+  const { gate, artifactDraft } = await staged();
+  const eventBus = recordingBus();
+  const button = buttonStub();
+  const status = { textContent: "" };
+  let currentDraft = artifactDraft.repro;
+  let finishDraft;
+  const pendingDraft = new Promise(resolve => { finishDraft = resolve; });
+  initSigning({
+    button,
+    status,
+    getGateState: gate.getState,
+    getCurrentDraft: () => currentDraft,
+    persistArtifact: storeSuccessfully,
+    beforeSign: () => pendingDraft,
+    eventBus,
+  });
+  eventBus.emit("staged", { artifactDraft });
+
+  const click = button.click();
+  await Promise.resolve();
+  assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
+
+  currentDraft = "assert(add(3, 3) === 6)";
+  await gate.setDraft(currentDraft);
+  finishDraft();
+  const result = await click;
+
+  assert.equal(result.code, "STALE_REPRO");
+  assert.equal(status.textContent, "Draft changed · run and stage again");
+  assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
 });

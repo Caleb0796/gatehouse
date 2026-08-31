@@ -16,5 +16,18 @@
 .replay-columns {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  min-width: 0;
+}
+
+.replay-columns > section,
+.replay-columns dl,
+.replay-columns dd {
+  min-width: 0;
+}
+
+.replay-columns dd {
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }

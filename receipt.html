@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gatehouse receipt</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3EG%3C/text%3E%3C/svg%3E">
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
   body { margin: 0; background: #111827; color: #e5e7eb; }
@@ -12,8 +13,7 @@
   h2 { margin-top: 32px; border-bottom: 1px solid #374151; padding-bottom: 8px; }
   h3 { margin-top: 24px; }
   .guidance { color: #cbd5e1; }
-  .claim-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 24px 0; }
-  .verification { margin: 0; padding: 16px; border: 2px solid; border-radius: 12px; font-size: 1rem; font-weight: 800; }
+  .verification { margin: 24px 0; padding: 20px; border: 2px solid; border-radius: 12px; font-size: clamp(1.4rem, 5vw, 2.4rem); font-weight: 800; }
   .verified { border-color: #22c55e; background: #052e16; color: #86efac; }
   .unverified { border-color: #f59e0b; background: #451a03; color: #fcd34d; }
   .error { border-color: #ef4444; background: #450a0a; color: #fecaca; }
@@ -21,16 +21,13 @@
   dt { color: #94a3b8; font-weight: 700; }
   dd { margin: 0; overflow-wrap: anywhere; }
   .download { display: inline-block; margin-top: 24px; padding: 10px 16px; border-radius: 8px; background: #2563eb; color: white; font-weight: 700; text-decoration: none; }
-  .json-import { margin-top: 32px; padding: 20px; border: 1px solid #475569; border-radius: 12px; }
-  .json-import h2 { margin-top: 0; }
-  .import-status { min-height: 1.5em; color: #fcd34d; }
   @media (max-width: 600px) { dl { grid-template-columns: 1fr; } dd { margin-bottom: 8px; } }
 </style>
 </head>
 <body>
 <main id="receipt-root">
   <h1>Gatehouse receipt</h1>
-  <p class="guidance">This page displays reporter-generated local evidence and its explicit verification limits.</p>
+  <p class="guidance">Paste this link into your GitHub issue so maintainers can inspect the reporter-generated local evidence and its locally approved evidence record. This browser-local approval is unauthenticated, does not verify identity, is not a cryptographic signature, and can be activated by automation.</p>
   <p>Loading receipt…</p>
 </main>
 <script type="module" src="/src/inbox/receipt-page.js"></script>

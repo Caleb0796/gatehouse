@@ -1,5 +1,10 @@
-export const CHROME_COMMAND = 'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" http://localhost:8080/';
+export const CHROME_COMMAND = 'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" <url>';
 export const CHATGPT_SETTINGS_PATH = "Settings → Browser → Permissions → Enable site tools";
+
+export function buildChromeCommand(url) {
+  const quotedUrl = `'${String(url).replaceAll("'", `'"'"'`)}'`;
+  return CHROME_COMMAND.replace("<url>", quotedUrl);
+}
 
 function browserName(userAgent) {
   if (/ChatGPT/i.test(userAgent)) return "ChatGPT Browser";
@@ -7,7 +12,7 @@ function browserName(userAgent) {
   return "Other browser";
 }
 
-export function detectEnvironment({ modelContext, isSecureContext, userAgent = "" }) {
+export function detectEnvironment({ modelContext, isSecureContext, userAgent = "", demoMode = false }) {
   const hasWebMCP = Boolean(modelContext && typeof modelContext.registerTool === "function");
   const browser = browserName(userAgent);
 
@@ -33,12 +38,23 @@ export function detectEnvironment({ modelContext, isSecureContext, userAgent = "
     };
   }
 
+  if (!demoMode) {
+    return {
+      mode: "unavailable",
+      tone: "warning",
+      browser,
+      hasWebMCP,
+      title: "WEBMCP UNAVAILABLE",
+      message: "No in-page agent is active on this URL. Enable WebMCP or open the deterministic demo.",
+    };
+  }
+
   return {
     mode: "simulation",
     tone: "warning",
     browser,
     hasWebMCP,
-    title: "SIMULATION MODE · 模拟模式",
+    title: "SIMULATION MODE",
     message: "WebMCP is unavailable here. The in-page agent will use the same tool implementations directly.",
   };
 }
@@ -72,10 +88,13 @@ export function init(rootEl, deps = {}) {
   const win = deps.window || window;
   const nav = deps.navigator || navigator;
   const clipboard = deps.clipboard || nav.clipboard;
+  const currentUrl = String(win.location?.href || "<url>");
+  const demoMode = deps.demoMode ?? new URLSearchParams(win.location?.search || "").get("demo") === "1";
   const environment = detectEnvironment({
     modelContext: doc.modelContext,
     isSecureContext: win.isSecureContext,
     userAgent: nav.userAgent,
+    demoMode,
   });
 
   rootEl.replaceChildren();
@@ -94,27 +113,34 @@ export function init(rootEl, deps = {}) {
     `${environment.browser} · secure context: ${win.isSecureContext ? "yes" : "no"} · document.modelContext: ${environment.hasWebMCP ? "detected" : "missing"}`,
     "env-banner__facts",
   );
+  if (environment.mode === "unavailable") {
+    const demoUrl = new URL(currentUrl);
+    demoUrl.searchParams.set("demo", "1");
+    const demoLink = doc.createElement("a");
+    demoLink.className = "env-banner__demo-link";
+    demoLink.href = demoUrl.href;
+    demoLink.textContent = "Open deterministic demo";
+    summary.append(demoLink);
+  }
 
-  const setup = doc.createElement("div");
+  const setup = doc.createElement("details");
   setup.className = "env-banner__setup";
-  const currentUrl = String(win.location?.href || "<url>");
+  setup.open = environment.mode !== "live";
+  const setupSummary = doc.createElement("summary");
+  setupSummary.textContent = "Browser setup";
+  const chromeCommand = buildChromeCommand(currentUrl);
 
   const chromeRow = doc.createElement("div");
   chromeRow.className = "env-banner__setup-row";
-  appendText(doc, chromeRow, "code", CHROME_COMMAND);
-  chromeRow.append(copyButton(doc, CHROME_COMMAND, "Copy Chrome command", clipboard));
-
-  const pageUrlRow = doc.createElement("div");
-  pageUrlRow.className = "env-banner__setup-row";
-  appendText(doc, pageUrlRow, "span", "Page URL");
-  appendText(doc, pageUrlRow, "code", currentUrl);
+  appendText(doc, chromeRow, "code", chromeCommand);
+  chromeRow.append(copyButton(doc, chromeCommand, "Copy Chrome command", clipboard));
 
   const chatGptRow = doc.createElement("div");
   chatGptRow.className = "env-banner__setup-row";
   appendText(doc, chatGptRow, "span", `${CHATGPT_SETTINGS_PATH} · GPT-5.6 Sol/Terra supported · Luna unavailable`);
   chatGptRow.append(copyButton(doc, CHATGPT_SETTINGS_PATH, "Copy ChatGPT path", clipboard));
 
-  setup.append(chromeRow, pageUrlRow, chatGptRow);
+  setup.append(setupSummary, chromeRow, chatGptRow);
   rootEl.append(summary, setup);
 
   return environment;

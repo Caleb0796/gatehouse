@@ -104,70 +104,75 @@ function appendField(document, parent, label, value) {
   parent.append(term, detail);
 }
 
-function initShare(document, root, artifact, deps) {
-  const prepare = deps.prepareReceiptShare ?? prepareReceiptShare;
-  const encode = deps.encodeReceipt ?? encodeReceipt;
+function safeId(targetId) {
+  const cleaned = String(targetId)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  return cleaned || "report";
+}
+
+function resolveReceiptUrl(url, document, baseUrl) {
+  const base = baseUrl ?? document.baseURI;
+  return base ? new URL(url, base).href : url;
+}
+
+export async function initReceiptShare(rootEl, artifact, deps = {}) {
+  const document = rootEl.ownerDocument;
   const heading = document.createElement("h4");
-  const reviewButton = document.createElement("button");
-  const output = document.createElement("div");
-  heading.textContent = "Share receipt";
-  reviewButton.type = "button";
-  reviewButton.textContent = "Review receipt before sharing";
-  reviewButton.addEventListener("click", async () => {
-    reviewButton.disabled = true;
-    const review = await prepare(artifact);
-    if (review.error) {
-      output.textContent = `Receipt unavailable: ${review.error}`;
-      reviewButton.disabled = false;
-      return;
+  const status = document.createElement("p");
+  heading.textContent = "Shareable receipt";
+  status.textContent = "Preparing receipt…";
+  rootEl.replaceChildren(heading, status);
+
+  try {
+    const prepare = deps.prepareReceiptShare ?? prepareReceiptShare;
+    const prepared = await prepare(artifact);
+    if (prepared.error) throw new Error(prepared.error);
+    const encoded = await (deps.encodeReceipt ?? encodeReceipt)(artifact, {
+      confirmed: true,
+      expectedReceiptId: prepared.receiptId,
+    });
+    if ("url" in encoded) {
+      const guidance = document.createElement("p");
+      const open = document.createElement("a");
+      const copy = document.createElement("button");
+      const receiptUrl = resolveReceiptUrl(encoded.url, document, deps.baseUrl);
+      guidance.textContent = "Open or copy this receipt link to share the locally approved evidence.";
+      open.href = receiptUrl;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = "Open receipt";
+      copy.type = "button";
+      copy.textContent = "Copy receipt link";
+      status.textContent = "Receipt link fits the 6 KB sharing limit.";
+      copy.addEventListener("click", async () => {
+        try {
+          const clipboard = deps.clipboard ?? navigator.clipboard;
+          await clipboard.writeText(receiptUrl);
+          status.textContent = "Receipt link copied";
+        } catch {
+          status.textContent = "Copy failed; open the receipt and copy its address instead.";
+        }
+      });
+      rootEl.replaceChildren(heading, guidance, open, copy, status);
+      return () => {};
     }
 
-    const warning = document.createElement("p");
-    const identity = document.createElement("p");
-    const preview = document.createElement("pre");
-    const secretList = document.createElement("ul");
-    const confirmButton = document.createElement("button");
-    const result = document.createElement("div");
-    warning.textContent = review.shareWarning;
-    identity.textContent = `Canonical receipt ID: ${review.receiptId}`;
-    preview.textContent = review.preview;
-    for (const secretWarning of review.secretWarnings) {
-      const item = document.createElement("li");
-      item.textContent = secretWarning.message;
-      secretList.append(item);
-    }
-    confirmButton.type = "button";
-    confirmButton.textContent = "Confirm and create receipt";
-    confirmButton.addEventListener("click", async () => {
-      confirmButton.disabled = true;
-      const encoded = await encode(artifact, {
-        confirmed: true,
-        expectedReceiptId: review.receiptId,
-      });
-      if (encoded.error) {
-        result.textContent = encoded.error;
-        confirmButton.disabled = false;
-        return;
-      }
-      if (typeof encoded.url === "string") {
-        const link = document.createElement("a");
-        link.href = encoded.url;
-        link.textContent = "Open receipt";
-        result.replaceChildren(link);
-        return;
-      }
-      const download = document.createElement("a");
-      const guidance = document.createElement("p");
-      const createObjectURL = deps.createObjectURL ?? URL.createObjectURL.bind(URL);
-      download.href = createObjectURL(new Blob([encoded.download], { type: "application/json" }));
-      download.download = encoded.filename;
-      download.textContent = "Download receipt JSON";
-      guidance.textContent = encoded.guidance;
-      result.replaceChildren(download, guidance);
-    });
-    output.replaceChildren(warning, identity, preview, secretList, confirmButton, result);
-  });
-  root.replaceChildren(heading, reviewButton, output);
+    const guidance = document.createElement("p");
+    const download = document.createElement("a");
+    const createObjectURL = deps.createObjectURL ?? URL.createObjectURL.bind(URL);
+    const blobUrl = createObjectURL(new Blob([encoded.download], { type: "application/json" }));
+    guidance.textContent = "This receipt exceeds the 6 KB link limit. Download and share the JSON file instead.";
+    download.href = blobUrl;
+    download.download = `gatehouse-receipt-${safeId(artifact.targetId)}.json`;
+    download.textContent = "Download receipt JSON";
+    status.textContent = "JSON download fallback ready";
+    rootEl.replaceChildren(heading, guidance, download, status);
+    return () => (deps.revokeObjectURL ?? URL.revokeObjectURL.bind(URL))(blobUrl);
+  } catch {
+    status.textContent = "Receipt could not be prepared.";
+    return () => {};
+  }
 }
 
 function renderDetail(document, root, entry, deps) {
@@ -179,7 +184,7 @@ function renderDetail(document, root, entry, deps) {
 
   heading.textContent = entry.title;
   appendField(document, fields, "Schema version", entry.artifact.v);
-  appendField(document, fields, "Signed at", entry.artifact.signedAt);
+  appendField(document, fields, "Local approval recorded at", entry.artifact.signedAt);
   appendField(document, fields, "Target kind", entry.artifact.targetKind);
   appendField(document, fields, "Issue URL", entry.artifact.issueUrl);
   appendField(document, fields, "Reported-bad version", entry.artifact.badVersion);
@@ -234,10 +239,15 @@ function renderDetail(document, root, entry, deps) {
     root.append(eventFields);
   }
 
-  const share = document.createElement("section");
-  share.className = "inbox-share";
-  root.append(share);
-  initShare(document, share, entry.artifact, deps);
+  const receipt = document.createElement("section");
+  receipt.className = "inbox-receipt";
+  root.append(receipt);
+  let disposed = false;
+  let disposeReceipt = () => {};
+  void initReceiptShare(receipt, entry.artifact, deps).then((cleanup) => {
+    if (disposed) cleanup();
+    else disposeReceipt = cleanup;
+  });
 
   const replay = document.createElement("section");
   replay.className = "inbox-replay";
@@ -255,7 +265,13 @@ function renderDetail(document, root, entry, deps) {
   const adopt = document.createElement("section");
   adopt.className = "inbox-adopt";
   root.append(adopt);
-  initAdopt(adopt, entry.artifact, deps);
+  const disposeAdopt = initAdopt(adopt, entry.artifact, deps);
+
+  return () => {
+    disposed = true;
+    disposeReceipt();
+    disposeAdopt();
+  };
 }
 
 function render(root, entries, selectedIndex, select, deps) {
@@ -263,37 +279,49 @@ function render(root, entries, selectedIndex, select, deps) {
   const heading = document.createElement("h2");
   const list = document.createElement("ol");
   const detail = document.createElement("article");
-  heading.textContent = "Signed report inbox";
+  heading.textContent = "Locally approved reports";
   list.className = "inbox-list";
   detail.className = "inbox-detail";
   root.replaceChildren(heading, list, detail);
 
   if (!entries.length) {
     const empty = document.createElement("p");
-    empty.textContent = "No signed reports yet.";
+    empty.textContent = "No locally approved reports yet.";
     detail.append(empty);
-    return;
+    return () => {};
   }
 
   entries.forEach((entry, index) => {
+    const selected = index === selectedIndex;
     const item = document.createElement("li");
     const button = document.createElement("button");
     const title = document.createElement("span");
     const verdict = document.createElement("span");
     const signedAt = document.createElement("time");
     button.type = "button";
-    button.className = index === selectedIndex ? "selected" : "";
+    button.className = selected ? "selected" : "";
+    if (selected) button.setAttribute("aria-current", "true");
     button.addEventListener("click", () => select(index));
+    title.className = "inbox-list__title";
     title.textContent = entry.title;
     verdict.className = `verdict-badge ${entry.verdict.tone}`;
     verdict.textContent = entry.verdict.label;
+    signedAt.className = "inbox-list__time";
+    signedAt.dateTime = entry.signedAt;
     signedAt.textContent = entry.signedAt;
-    button.append(title, verdict, signedAt);
+    button.append(title, verdict);
+    if (selected) {
+      const marker = document.createElement("span");
+      marker.className = "inbox-list__selected";
+      marker.textContent = "Selected";
+      button.append(marker);
+    }
+    button.append(signedAt);
     item.append(button);
     list.append(item);
   });
 
-  renderDetail(document, detail, entries[selectedIndex] ?? entries[0], deps);
+  return renderDetail(document, detail, entries[selectedIndex] ?? entries[0], deps);
 }
 
 export function init(rootEl, deps = {}) {
@@ -301,11 +329,13 @@ export function init(rootEl, deps = {}) {
   const eventBus = deps.bus ?? sharedBus;
   let artifacts = loadInbox(storage);
   let selectedIndex = 0;
+  let disposeDetail = () => {};
 
   const draw = () => {
+    disposeDetail();
     const entries = createInboxView(artifacts);
     rootEl.hidden = entries.length === 0;
-    render(rootEl, entries, selectedIndex, index => {
+    disposeDetail = render(rootEl, entries, selectedIndex, index => {
       selectedIndex = index;
       draw();
     }, deps);
@@ -318,5 +348,8 @@ export function init(rootEl, deps = {}) {
   });
 
   draw();
-  return unsubscribe;
+  return () => {
+    disposeDetail();
+    unsubscribe();
+  };
 }

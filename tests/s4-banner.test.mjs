@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CHROME_COMMAND, init } from "../src/ui/banner.js";
+import { buildChromeCommand, CHROME_COMMAND, init } from "../src/ui/banner.js";
 
 class FakeElement {
   constructor(tagName) {
@@ -30,7 +30,7 @@ class FakeElement {
   }
 }
 
-test("Chrome command excludes the dynamic page URL", async () => {
+test("Chrome command shell-quotes the dynamic page URL", async () => {
   const dynamicPart = "#;id`whoami`$(id)|cat&next=\n\"'";
   const currentUrl = `http://localhost:8080/${dynamicPart}`;
   const writes = [];
@@ -50,12 +50,11 @@ test("Chrome command excludes the dynamic page URL", async () => {
   });
 
   const setup = root.children[1];
-  const chromeRow = setup.children[0];
-  const pageUrlRow = setup.children[1];
+  const chromeRow = setup.children[1];
   await chromeRow.children[1].listeners.get("click")();
 
-  assert.equal(writes[0], CHROME_COMMAND);
+  assert.equal(writes[0], buildChromeCommand(currentUrl));
+  assert.equal(writes[0].startsWith(CHROME_COMMAND.replace("<url>", "")), true);
   assert.equal(CHROME_COMMAND.includes(dynamicPart), false);
-  assert.equal(pageUrlRow.children[0].textContent, "Page URL");
-  assert.equal(pageUrlRow.children[1].textContent, currentUrl);
+  assert.equal(writes[0].includes("<url>"), false);
 });

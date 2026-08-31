@@ -11,6 +11,9 @@ function shownLogs(sample) {
 
 export function createReceiptView(artifact, reproHashOk, metadata = {}) {
   return {
+    verification: reproHashOk
+      ? "Repro hash self-consistent ✓"
+      : "Repro hash not self-consistent ✗",
     states: [
       ["Repro source hash", reproHashOk ? "self-consistent ✓" : "not self-consistent ✗"],
       ["Build origin", "not verified"],
@@ -25,7 +28,7 @@ export function createReceiptView(artifact, reproHashOk, metadata = {}) {
       ["Library", artifact.library],
       ["Target kind", artifact.targetKind],
       ["Issue URL", artifact.issueUrl],
-      ["Signed at", artifact.signedAt],
+      ["Local approval recorded at", artifact.signedAt],
       ["User agent", artifact.ua],
       ["Local differential green", artifact.green],
       ["Local differential reason", artifact.reason],
@@ -74,6 +77,7 @@ export function createReceiptView(artifact, reproHashOk, metadata = {}) {
 }
 
 function appendFields(parent, fields) {
+  const document = parent.ownerDocument;
   const list = document.createElement("dl");
   for (const [label, value] of fields) {
     const term = document.createElement("dt");
@@ -86,6 +90,7 @@ function appendFields(parent, fields) {
 }
 
 function appendGroups(parent, groups) {
+  const document = parent.ownerDocument;
   for (const group of groups) {
     const heading = document.createElement("h3");
     heading.textContent = group.title;
@@ -95,6 +100,7 @@ function appendGroups(parent, groups) {
 }
 
 function appendSection(parent, title, fields) {
+  const document = parent.ownerDocument;
   const heading = document.createElement("h2");
   heading.textContent = title;
   parent.append(heading);
@@ -102,6 +108,7 @@ function appendSection(parent, title, fields) {
 }
 
 function appendStates(parent, states) {
+  const document = parent.ownerDocument;
   const section = document.createElement("section");
   section.className = "claim-states";
   for (const [label, value] of states) {
@@ -116,6 +123,7 @@ function appendStates(parent, states) {
 }
 
 function appendJsonImport(root) {
+  const document = root.ownerDocument;
   const section = document.createElement("section");
   const heading = document.createElement("h2");
   const guidance = document.createElement("p");
@@ -144,14 +152,18 @@ function appendJsonImport(root) {
 }
 
 export function renderReceipt(root, artifact, reproHashOk, metadata = {}) {
+  const document = root.ownerDocument;
   const view = createReceiptView(artifact, reproHashOk, metadata);
   const heading = document.createElement("h1");
   const guidance = document.createElement("p");
   heading.textContent = "Gatehouse receipt";
   guidance.className = "guidance";
-  guidance.textContent = "This page displays reporter-generated local evidence. It does not independently verify builds, rerun the repro, or establish identity.";
-  root.replaceChildren(heading, guidance);
-  appendStates(root, view.states);
+  const verification = document.createElement("p");
+  guidance.textContent = "Paste this link into your GitHub issue so maintainers can inspect the locally approved evidence. This browser-local approval is unauthenticated, does not verify identity, is not a cryptographic signature, and can be activated by automation.";
+  verification.className = `verification ${reproHashOk ? "verified" : "unverified"}`;
+  verification.textContent = view.verification;
+  root.replaceChildren(heading, guidance, verification);
+  appendStates(root, view.states.slice(1));
 
   appendSection(root, "Receipt", view.receipt);
   appendSection(root, "Claimed builds", view.builds);
@@ -168,17 +180,20 @@ export function renderReceipt(root, artifact, reproHashOk, metadata = {}) {
   appendGroups(root, view.timeline);
 
   const download = document.createElement("a");
-  const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(artifact, null, 2)], { type: "application/json" }));
+  const createObjectURL = metadata.createObjectURL ?? URL.createObjectURL.bind(URL);
+  const revokeObjectURL = metadata.revokeObjectURL ?? URL.revokeObjectURL.bind(URL);
+  const blobUrl = createObjectURL(new Blob([JSON.stringify(artifact, null, 2)], { type: "application/json" }));
   download.className = "download";
   download.href = blobUrl;
   download.download = `gatehouse-receipt-${metadata.receiptId ?? artifact.reproSha256.slice(0, 16)}.json`;
   download.textContent = "Download receipt JSON";
   root.append(download);
-  window.addEventListener("pagehide", () => URL.revokeObjectURL(blobUrl), { once: true });
   appendJsonImport(root);
+  return once(() => revokeObjectURL(blobUrl));
 }
 
-function renderError(root, message) {
+export function renderError(root, message) {
+  const document = root.ownerDocument;
   const heading = document.createElement("h1");
   const guidance = document.createElement("p");
   const error = document.createElement("div");
@@ -189,13 +204,86 @@ function renderError(root, message) {
   error.textContent = `Receipt could not be opened: ${message}`;
   root.replaceChildren(heading, guidance, error);
   appendJsonImport(root);
+  return () => {};
 }
 
-async function init() {
-  const root = document.querySelector("#receipt-root");
-  const decoded = await decodeReceipt(location.hash);
-  if (decoded.error) renderError(root, decoded.error);
-  else renderReceipt(root, decoded.artifact, decoded.reproHashOk, decoded);
+export function renderLoading(root) {
+  const document = root.ownerDocument;
+  const heading = document.createElement("h1");
+  const guidance = document.createElement("p");
+  const status = document.createElement("p");
+  heading.textContent = "Gatehouse receipt";
+  guidance.className = "guidance";
+  guidance.textContent = "Open the complete receipt link, then paste this link into your GitHub issue.";
+  status.setAttribute("role", "status");
+  status.textContent = "Verifying receipt…";
+  root.replaceChildren(heading, guidance, status);
+  return () => {};
 }
 
-if (typeof document !== "undefined") init();
+function once(dispose) {
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    if (typeof dispose === "function") dispose();
+  };
+}
+
+export function initReceiptPage({
+  root = document.querySelector("#receipt-root"),
+  windowObject = window,
+  decode = decodeReceipt,
+  render = renderReceipt,
+  renderFailure = renderError,
+  renderPending = renderLoading,
+} = {}) {
+  let generation = 0;
+  let disposed = false;
+  let disposeView = () => {};
+
+  const replaceView = (renderView) => {
+    disposeView();
+    disposeView = once(renderView() ?? (() => {}));
+  };
+
+  const verifyCurrentHash = async () => {
+    const currentGeneration = generation + 1;
+    generation = currentGeneration;
+    const hash = windowObject.location.hash;
+    replaceView(() => renderPending(root));
+
+    let decoded;
+    try {
+      decoded = await decode(hash);
+    } catch (error) {
+      decoded = { error: error instanceof Error ? error.message : String(error) };
+    }
+    if (disposed || currentGeneration !== generation) return;
+
+    if (decoded.error) {
+      replaceView(() => renderFailure(root, decoded.error));
+    } else {
+      replaceView(() => render(root, decoded.artifact, decoded.reproHashOk, decoded));
+    }
+  };
+
+  const onHashChange = () => {
+    void verifyCurrentHash();
+  };
+  const cleanup = once(() => {
+    disposed = true;
+    generation += 1;
+    windowObject.removeEventListener("hashchange", onHashChange);
+    windowObject.removeEventListener("pagehide", cleanup);
+    disposeView();
+    disposeView = () => {};
+  });
+
+  windowObject.addEventListener("hashchange", onHashChange);
+  windowObject.addEventListener("pagehide", cleanup);
+  void verifyCurrentHash();
+  return cleanup;
+}
+
+if (typeof document !== "undefined") initReceiptPage();

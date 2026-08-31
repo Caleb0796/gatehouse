@@ -17,35 +17,69 @@ function storeError(result) {
   return "Artifact storage could not be confirmed.";
 }
 
-function showStagedReview(review, artifactDraft) {
+function appendReviewField(document, parent, label, value) {
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  detail.textContent = value;
+  parent.append(term, detail);
+}
+
+function clearReview(review) {
   if (!review) return;
-  const repeats = artifactDraft.repeats;
-  const badFailures = artifactDraft.samples.bad.filter(({ verdict }) => verdict === "fail").length;
-  const goodPasses = artifactDraft.samples.good.filter(({ verdict }) => verdict === "pass").length;
-  review.summary.textContent = [
-    "Review the exact code below before signing.",
-    `Reproduction SHA-256: ${artifactDraft.reproSha256}`,
-    `Reported build ${artifactDraft.badVersion}: ${badFailures}/${repeats} failed · ${artifactDraft.badSha256}`,
-    `Reference build ${artifactDraft.goodVersion}: ${goodPasses}/${repeats} passed · ${artifactDraft.goodSha256}`,
-  ].join("\n");
-  review.repro.textContent = artifactDraft.repro;
-  review.root.hidden = false;
+  review.hidden = true;
+  review.replaceChildren();
+}
+
+function showReview(review, artifactDraft) {
+  if (!review) return;
+  const document = review.ownerDocument;
+  const heading = document.createElement("h3");
+  const guidance = document.createElement("p");
+  const fields = document.createElement("dl");
+  const repro = document.createElement("pre");
+  heading.textContent = "Exact staged report";
+  guidance.textContent = "Review the exact reproduction and pinned build hashes before saving this report locally.";
+  appendReviewField(document, fields, "Reproduction SHA-256", artifactDraft.reproSha256);
+  appendReviewField(
+    document,
+    fields,
+    "Reported-bad build",
+    `${artifactDraft.badVersion} · ${artifactDraft.badSha256}`,
+  );
+  appendReviewField(
+    document,
+    fields,
+    "Comparison build",
+    `${artifactDraft.goodVersion} · ${artifactDraft.goodSha256}`,
+  );
+  repro.textContent = artifactDraft.repro;
+  review.replaceChildren(heading, guidance, fields, repro);
+  review.hidden = false;
 }
 
 export async function signArtifact({
   artifactDraft,
   gateState,
+  currentDraft,
+  persistArtifact = storeInboxArtifact,
   eventBus = bus,
   now = () => new Date(),
   userAgent = () => navigator.userAgent,
-  storeArtifact = storeInboxArtifact,
 }) {
+  if (typeof persistArtifact !== "function") {
+    throw new TypeError("signArtifact requires a persistArtifact callback");
+  }
+
   const signedAt = now();
+  const visibleDraft = currentDraft === undefined ? gateState.draft : currentDraft;
   if (
     artifactDraft === null
     || gateState.draftSha === null
     || gateState.draftSha !== gateState.boundSha
     || gateState.draftSha !== artifactDraft.reproSha256
+    || visibleDraft !== gateState.draft
+    || visibleDraft !== artifactDraft.repro
   ) {
     revoked(eventBus, signedAt.getTime());
     return {
@@ -65,7 +99,7 @@ export async function signArtifact({
   assertArtifactSize(artifact);
   let stored;
   try {
-    stored = await storeArtifact(artifact);
+    stored = await persistArtifact(artifact);
   } catch (error) {
     stored = { ok: false, error };
   }
@@ -81,40 +115,56 @@ export async function signArtifact({
 
 export function initSigning({
   button,
-  status,
   review,
+  status,
   getGateState,
+  getCurrentDraft,
+  persistArtifact,
+  beforeSign = () => undefined,
   eventBus = bus,
   now,
   userAgent,
-  storeArtifact,
 }) {
   let artifactDraft = null;
-  status.textContent = "未提交";
+  clearReview(review);
+  status.textContent = "Awaiting local approval";
   button.disabled = true;
 
-  const unsubscribe = eventBus.on("staged", (event) => {
+  const unsubscribeStaged = eventBus.on("staged", (event) => {
     artifactDraft = event.artifactDraft;
-    showStagedReview(review, artifactDraft);
-    status.textContent = "待人工审阅";
+    showReview(review, artifactDraft);
+    status.textContent = "Awaiting local approval";
     button.disabled = false;
+  });
+  const unsubscribeDraft = eventBus.on("draft", () => {
+    if (artifactDraft === null) return;
+    artifactDraft = null;
+    clearReview(review);
+    status.textContent = "Draft changed · run and stage again";
+    button.disabled = true;
   });
   const onClick = async () => {
     button.disabled = true;
+    await beforeSign();
+    const gateState = getGateState();
     const result = await signArtifact({
       artifactDraft,
-      gateState: getGateState(),
+      gateState,
+      currentDraft: getCurrentDraft ? getCurrentDraft() : gateState.draft,
+      persistArtifact,
       eventBus,
       now,
       userAgent,
-      storeArtifact,
     });
     if (Object.hasOwn(result, "artifact")) {
-      status.textContent = "已签名";
-      button.disabled = true;
-    } else {
-      status.textContent = `签名失败：${result.message}`;
+      status.textContent = "Locally approved";
+    } else if (result.code === "ARTIFACT_STORE_FAILED") {
+      status.textContent = "Local save failed · try again";
       button.disabled = false;
+    } else {
+      artifactDraft = null;
+      clearReview(review);
+      status.textContent = "Draft changed · run and stage again";
     }
     return result;
   };
@@ -122,6 +172,7 @@ export function initSigning({
 
   return () => {
     button.removeEventListener("click", onClick);
-    unsubscribe();
+    unsubscribeStaged();
+    unsubscribeDraft();
   };
 }

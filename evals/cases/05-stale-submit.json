@@ -11,11 +11,15 @@
     { "op": "getTools", "saveAs": "openTools" },
     { "op": "captureTool", "from": "openTools", "name": "submit_report", "saveAs": "staleSubmit" },
     { "op": "executeTool", "name": "write_repro", "input": { "code": "{{repro}}\n// stale edit" } },
-    { "op": "executeCapturedTool", "tool": "staleSubmit", "input": {}, "saveAs": "submitResult" }
+    { "op": "getTools", "saveAs": "toolsAfterEdit" },
+    { "op": "executeCapturedTool", "tool": "staleSubmit", "name": "submit_report", "input": {}, "saveAs": "submitResult" }
   ],
   "expect": {
     "reasonBeforeEdit": "STABLE_LOCAL_DIFFERENTIAL",
-    "submitCode": "STALE_REPRO",
+    "submitOutcomes": [
+      { "source": "browser", "code": "WEBMCP_TOOL_REVOKED" },
+      { "source": "application", "code": "STALE_REPRO" }
+    ],
     "gateOpen": false,
     "toolAbsent": "submit_report"
   },

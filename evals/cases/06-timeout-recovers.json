@@ -2,18 +2,25 @@
   "id": "timeout-recovers",
   "tier": "logic",
   "setup": {
-    "reset": true
+    "reset": true,
+    "recoveryRepro": "{{target.demoRepros.weak}}"
   },
   "actions": [
     { "op": "executeTool", "name": "write_repro", "input": { "code": "while (true) {}" } },
     { "op": "executeTool", "name": "run_repro", "saveAs": "timeoutRun" },
+    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{recoveryRepro}}" } },
+    { "op": "executeTool", "name": "run_repro", "saveAs": "recoveryRun" },
     { "op": "probePage", "saveAs": "pageProbe" }
   ],
   "expect": {
     "reason": "EXECUTION_ERROR",
     "badVerdict": "timeout",
+    "recoveryReason": "PASS_BOTH",
+    "recoveryBadVerdict": "pass",
+    "recoveryGoodVerdict": "pass",
     "pageAlive": true,
-    "maxRecoveryMs": 2000,
+    "maxTimeoutActionMs": 5000,
+    "maxRecoveryActionMs": 5000,
     "gateOpen": false
   }
 }

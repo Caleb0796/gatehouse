@@ -17,8 +17,8 @@ test("CI runs logic evals against the production-CSP server before checking head
   assert.match(workflow, /^  eval:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10$/m);
   assert.equal(
     workflow.match(/if \[ -L node_modules \]; then unlink node_modules; fi/g)?.length,
-    2,
-    "both jobs remove the repository's local-only node_modules symlink before npm ci",
+    3,
+    "all jobs remove the repository's local-only node_modules symlink before npm ci",
   );
   assert.ok(install >= 0 && install < server, "bundled Chromium is installed before the server starts");
   assert.ok(server >= 0, "production-CSP dev server is started");

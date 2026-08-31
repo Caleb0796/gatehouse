@@ -1,8 +1,9 @@
-import { init as initInbox } from "../inbox/inbox.js";
+import { init as initInbox, storeArtifact } from "../inbox/inbox.js";
 import { loadTarget, runDifferential as runRealDifferential } from "../sandbox/runner.js";
 import { bus } from "../shared/bus.js";
 import { init as initSimagent, isDemoMode } from "../simagent/simagent.js";
 import { init as initBanner } from "../ui/banner.js";
+import { init as initPrompt } from "../ui/prompt.js";
 import { init as initScoreboard } from "../ui/scoreboard.js";
 import { init as initTimeline } from "../ui/timeline.js";
 import { initSigning } from "./sign.js";
@@ -110,29 +111,23 @@ function renderRunPanel(rootEl, demoMode) {
 
 function renderSignPanel(rootEl) {
   rootEl.className = "panel sign-panel";
-  appendText(rootEl, "h2", "Human signature");
+  appendText(rootEl, "h2", "Local approval");
   appendText(
     rootEl,
     "p",
-    "A green differential can stage a report, but only a person can sign it.",
+    "A green differential can stage a report. This browser-local approval is unauthenticated, does not verify identity, and is not a cryptographic signature; automation can activate the control.",
     "panel__help",
   );
-  const reviewRoot = document.createElement("section");
-  reviewRoot.className = "sign-panel__review";
-  reviewRoot.hidden = true;
-  appendText(reviewRoot, "h3", "Exact staged report");
-  const reviewSummary = appendText(reviewRoot, "p", "", "sign-panel__review-summary");
-  const reviewRepro = appendText(reviewRoot, "pre", "", "sign-panel__review-repro");
-  rootEl.append(reviewRoot);
-  const status = appendText(rootEl, "p", "未提交", "sign-panel__status");
+  const review = document.createElement("section");
+  review.className = "sign-panel__review";
+  review.hidden = true;
+  review.setAttribute("aria-label", "Exact staged report");
+  rootEl.append(review);
+  const status = appendText(rootEl, "p", "Awaiting local approval", "sign-panel__status");
   status.setAttribute("aria-live", "polite");
-  const button = appendText(rootEl, "button", "Sign & submit", "button button--primary");
+  const button = appendText(rootEl, "button", "Approve & save locally", "button button--primary");
   button.type = "button";
-  return {
-    button,
-    status,
-    review: { root: reviewRoot, repro: reviewRepro, summary: reviewSummary },
-  };
+  return { button, review, status };
 }
 
 function formatRun(result) {
@@ -141,6 +136,44 @@ function formatRun(result) {
     ? result.runs.map(run => `${run.version}: ${run.verdict} (${run.durationMs}ms)`).join("\n")
     : "No per-build results";
   return `${result.green ? "GREEN" : "NOT GREEN"} · ${result.reason}\n${runs}`;
+}
+
+export function connectSurfaceUi({
+  eventBus,
+  getGateState,
+  hasPendingEditorDraft = () => false,
+  editorView,
+  runView,
+}) {
+  const unsubscribeDraft = eventBus.on("draft", ({ source }) => {
+    const state = getGateState();
+    if (source === "tool" && !hasPendingEditorDraft()) {
+      editorView.editor.value = state.draft;
+    }
+    if (editorView.editor.value === state.draft) {
+      editorView.status.textContent = `Draft stored · ${state.draftSha.slice(0, 12)}`;
+      editorView.editor.classList.remove("editor-panel__attention");
+    } else {
+      editorView.status.textContent = "Saving newer draft…";
+    }
+    runView.output.textContent = "Draft updated · not run yet";
+  });
+  const unsubscribeRun = eventBus.on("run", ({ verdict }) => {
+    runView.output.textContent = formatRun(verdict);
+  });
+
+  return () => {
+    unsubscribeDraft();
+    unsubscribeRun();
+  };
+}
+
+export async function waitForDraftUpdates(getPending) {
+  while (true) {
+    const pending = getPending();
+    await pending;
+    if (pending === getPending()) return;
+  }
 }
 
 export function trackDemoE2E(eventBus, body) {
@@ -183,13 +216,18 @@ export function trackDemoE2E(eventBus, body) {
 
 export async function initSurface({ runDifferential, target }) {
   const demoMode = isDemoMode(window.location.search);
-  initBanner(requiredElement("env-banner"));
+  initBanner(requiredElement("env-banner"), { demoMode });
   initTimeline(requiredElement("timeline"), { bus });
   initScoreboard(requiredElement("scoreboard"), { bus });
   initInbox(requiredElement("inbox-root"), { bus, runDifferential });
   if (demoMode) trackDemoE2E(bus, document.body);
 
-  renderTarget(requiredElement("target-panel"), target);
+  const targetRoot = requiredElement("target-panel");
+  renderTarget(targetRoot, target);
+  const promptRoot = document.createElement("section");
+  promptRoot.id = "demo-prompt";
+  targetRoot.append(promptRoot);
+  initPrompt(promptRoot);
   const initialCode = target.demoRepros?.broken || "";
   const editorView = renderEditor(requiredElement("editor-panel"), initialCode);
   const runView = renderRunPanel(requiredElement("run-panel"), demoMode);
@@ -209,6 +247,36 @@ export async function initSurface({ runDifferential, target }) {
     async stageReport() {},
   });
 
+  let draftUpdate = Promise.resolve();
+  let pendingEditorDrafts = 0;
+  let draftValid = true;
+  const storeDraft = code => {
+    pendingEditorDrafts += 1;
+    const update = draftUpdate
+      .catch(() => {})
+      .then(async () => {
+        const state = await surface.gate.setDraft(code, { source: "editor" });
+        draftValid = state.invalid !== true;
+        if (!draftValid) {
+          editorView.status.textContent = `Draft not stored · maximum ${MAX_REPRO_BYTES / 1024}KB UTF-8`;
+          runView.runButton.disabled = true;
+        }
+        return state;
+      });
+    draftUpdate = update.finally(() => {
+      pendingEditorDrafts -= 1;
+    });
+    return draftUpdate;
+  };
+
+  connectSurfaceUi({
+    eventBus: bus,
+    getGateState: surface.gate.getState,
+    hasPendingEditorDraft: () => pendingEditorDrafts > 0,
+    editorView,
+    runView,
+  });
+
   if (runView.simagentRoot) {
     initSimagent(runView.simagentRoot, {
       target,
@@ -220,37 +288,24 @@ export async function initSurface({ runDifferential, target }) {
 
   initSigning({
     button: signView.button,
-    status: signView.status,
     review: signView.review,
+    status: signView.status,
     getGateState: surface.gate.getState,
+    getCurrentDraft: () => editorView.editor.value,
+    persistArtifact: artifact => storeArtifact(artifact),
+    beforeSign: () => waitForDraftUpdates(() => draftUpdate),
   });
 
-  let draftUpdate = Promise.resolve();
-  let draftValid = true;
-  const storeDraft = code => {
-    draftUpdate = draftUpdate.then(async () => {
-      const state = await surface.gate.setDraft(code);
-      draftValid = state.invalid !== true;
-      if (!draftValid) {
-        editorView.status.textContent = `Draft not stored · maximum ${MAX_REPRO_BYTES / 1024}KB UTF-8`;
-        runView.runButton.disabled = true;
-        return;
-      }
-      editorView.status.textContent = `Draft stored · ${state.draftSha.slice(0, 12)}`;
-      editorView.editor.classList.remove("editor-panel__attention");
-      runView.runButton.disabled = false;
-    });
-    return draftUpdate;
-  };
-
   editorView.editor.addEventListener("input", () => {
-    storeDraft(editorView.editor.value);
+    void storeDraft(editorView.editor.value).catch((error) => {
+      editorView.status.textContent = `Draft save failed: ${error instanceof Error ? error.message : String(error)}`;
+    });
   });
   runView.runButton.addEventListener("click", async () => {
     runView.runButton.disabled = true;
     runView.output.textContent = "Running both pinned builds…";
     try {
-      await draftUpdate;
+      await waitForDraftUpdates(() => draftUpdate);
       if (!draftValid) {
         runView.output.textContent = `Run blocked: repro code exceeds ${MAX_REPRO_BYTES / 1024}KB UTF-8.`;
         return;

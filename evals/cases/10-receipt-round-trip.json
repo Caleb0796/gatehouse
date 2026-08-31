@@ -12,16 +12,18 @@
     { "op": "click", "selector": "#sign-panel button", "saveAs": "signed" },
     { "op": "readSignedArtifact", "saveAs": "artifact" },
     { "op": "prepareReceiptShare", "artifact": "artifact", "saveAs": "review" },
+    { "op": "inspectInboxReceipt", "saveAs": "receiptPage" },
     { "op": "encodeReceipt", "artifact": "artifact", "review": "review", "saveAs": "receipt" },
     { "op": "decodeReceipt", "receipt": "receipt", "saveAs": "decoded" }
   ],
   "expect": {
     "reason": "STABLE_LOCAL_DIFFERENTIAL",
-    "stagedStatus": "staged_awaiting_human_signature",
+    "stagedStatus": "staged_awaiting_local_approval",
     "artifactHashMatchesDraft": true,
     "publicProjectionRoundTrip": true,
     "publicProjectionHasLogs": false,
     "receiptIdentityMatchesProjection": true,
-    "reproHashOk": true
+    "reproHashOk": true,
+    "verificationLabel": "Repro hash self-consistent ✓"
   }
 }
