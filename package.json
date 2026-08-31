@@ -12,6 +12,7 @@
     "eval:chrome": "node evals/run-evals.mjs --url http://127.0.0.1:8080/?test=1",
     "eval:validate": "node evals/run-evals.mjs --validate",
     "test": "node --test $(find tests src evals -name \"*.test.mjs\" | sort)",
+    "test:ui": "node ui-tests/run-ui-regressions.mjs",
     "verify": "npm test && npm run eval:validate"
   },
   "devDependencies": {

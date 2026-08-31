@@ -1,5 +1,6 @@
 import { bus } from "../shared/bus.js";
 import { sha256Hex } from "../shared/hash.js";
+import { storeArtifact } from "../inbox/inbox.js";
 import { initSigning } from "./sign.js";
 import { createSurface } from "./surface.js";
 
@@ -50,6 +51,7 @@ initSigning({
   button: document.querySelector("#sign"),
   status: document.querySelector("#submission-status"),
   getGateState: surface.gate.getState,
+  persistArtifact: artifact => storeArtifact(artifact),
 });
 
 document.querySelector("#environment").textContent =

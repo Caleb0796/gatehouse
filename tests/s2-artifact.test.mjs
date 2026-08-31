@@ -85,9 +85,10 @@ test("signed artifacts contain every SubmissionArtifact field", async () => {
   const { gate, artifactDraft } = await staged();
   const eventBus = recordingBus();
 
-  const { artifact } = signArtifact({
+  const { artifact } = await signArtifact({
     artifactDraft,
     gateState: gate.getState(),
+    persistArtifact: async () => {},
     eventBus,
     now: () => new Date("2026-08-29T20:01:00.000Z"),
     userAgent: () => "test-agent",
@@ -120,9 +121,10 @@ test("signed artifacts contain every SubmissionArtifact field", async () => {
 
 test("artifact repro and all pinned hashes match the staged evidence", async () => {
   const { gate, artifactDraft } = await staged();
-  const { artifact } = signArtifact({
+  const { artifact } = await signArtifact({
     artifactDraft,
     gateState: gate.getState(),
+    persistArtifact: async () => {},
     eventBus: recordingBus(),
     now: () => new Date("2026-08-29T20:01:00.000Z"),
     userAgent: () => "test-agent",
@@ -138,9 +140,10 @@ test("editing after staging makes the click-time SHA check refuse signing", asyn
   await gate.setDraft("assert(add(3, 3) === 6)");
   const eventBus = recordingBus();
 
-  const result = signArtifact({
+  const result = await signArtifact({
     artifactDraft,
     gateState: gate.getState(),
+    persistArtifact: async () => assert.fail("stale artifacts must not be persisted"),
     eventBus,
     now: () => new Date("2026-08-29T20:02:00.000Z"),
     userAgent: () => "test-agent",
@@ -163,10 +166,11 @@ test("an editor value awaiting hashing cannot sign the old staged artifact", asy
   const { gate, artifactDraft } = await staged();
   const eventBus = recordingBus();
 
-  const result = signArtifact({
+  const result = await signArtifact({
     artifactDraft,
     gateState: gate.getState(),
     currentDraft: "assert(add(3, 3) === 6)",
+    persistArtifact: async () => assert.fail("stale artifacts must not be persisted"),
     eventBus,
     now: () => new Date("2026-08-29T20:02:00.000Z"),
     userAgent: () => "test-agent",
@@ -185,6 +189,7 @@ test("approval control uses accurate browser-local status copy", async () => {
     button,
     status,
     getGateState: gate.getState,
+    persistArtifact: async () => {},
     eventBus,
     now: () => new Date("2026-08-29T20:01:00.000Z"),
     userAgent: () => "test-agent",
@@ -214,6 +219,7 @@ test("signing waits for the pending draft store before its click-time check", as
     status,
     getGateState: gate.getState,
     getCurrentDraft: () => currentDraft,
+    persistArtifact: async () => {},
     beforeSign: () => pendingStore,
     eventBus,
     now: () => new Date("2026-08-29T20:02:00.000Z"),
@@ -234,4 +240,58 @@ test("signing waits for the pending draft store before its click-time check", as
   assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
   assert.equal(button.disabled, true);
   assert.equal(status.textContent, "Draft changed · run and stage again");
+});
+
+for (const errorName of ["QuotaExceededError", "SecurityError"]) {
+  test(`${errorName} leaves the staged artifact retryable without publishing signed`, async () => {
+    const { gate, artifactDraft } = await staged();
+    const eventBus = recordingBus();
+    const button = fakeButton();
+    const status = { textContent: "" };
+    const persisted = [];
+    let shouldFail = true;
+    initSigning({
+      button,
+      status,
+      getGateState: gate.getState,
+      persistArtifact: async artifact => {
+        if (shouldFail) {
+          const error = new Error("storage denied");
+          error.name = errorName;
+          throw error;
+        }
+        persisted.push(artifact);
+      },
+      eventBus,
+      now: () => new Date("2026-08-29T20:01:00.000Z"),
+      userAgent: () => "test-agent",
+    });
+    eventBus.emit("staged", { artifactDraft });
+
+    const failed = await button.listeners.get("click")();
+    assert.deepEqual(failed, {
+      code: "LOCAL_SAVE_FAILED",
+      message: "The report could not be saved locally.",
+    });
+    assert.equal(status.textContent, "Local save failed · try again");
+    assert.equal(button.disabled, false);
+    assert.equal(eventBus.events.some(({ type }) => type === "signed"), false);
+    assert.deepEqual(persisted, []);
+
+    shouldFail = false;
+    const retried = await button.listeners.get("click")();
+    assert.equal(Object.hasOwn(retried, "artifact"), true);
+    assert.equal(status.textContent, "Locally approved");
+    assert.equal(button.disabled, true);
+    assert.deepEqual(persisted, [retried.artifact]);
+    assert.equal(eventBus.events.filter(({ type }) => type === "signed").length, 1);
+  });
+}
+
+test("signArtifact requires an explicit persistence callback", async () => {
+  const { gate, artifactDraft } = await staged();
+  await assert.rejects(
+    signArtifact({ artifactDraft, gateState: gate.getState() }),
+    /requires a persistArtifact callback/,
+  );
 });

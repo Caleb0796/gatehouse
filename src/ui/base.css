@@ -187,6 +187,81 @@ button:disabled {
   max-width: 100%;
   overflow: auto;
   padding: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inbox-list,
+.inbox-list > li,
+.inbox-list > li > button,
+.inbox-detail,
+.inbox-detail > section,
+.inbox-detail dl,
+.inbox-detail dd {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.inbox-list {
+  display: grid;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+}
+
+.inbox-list > li > button {
+  display: grid;
+  gap: 0.35rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+  width: 100%;
+}
+
+.inbox-list > li > button.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0.25rem 0 var(--accent);
+}
+
+.inbox-list__title,
+.inbox-list__time {
+  grid-column: 1 / -1;
+}
+
+.inbox-list__title,
+.inbox-list__time,
+.verdict-badge,
+.inbox-list__selected,
+.inbox-detail h3,
+.inbox-detail dd {
+  overflow-wrap: anywhere;
+}
+
+.inbox-list__selected {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 800;
+  justify-self: end;
+}
+
+.inbox-list__time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.inbox-detail dl {
+  display: grid;
+  gap: 0.4rem 1rem;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+}
+
+.inbox-detail dt {
+  font-weight: 700;
+}
+
+.inbox-detail dd {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -222,6 +297,14 @@ button:disabled {
   #inbox-root {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  .inbox-detail dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inbox-detail dd {
+    margin-bottom: 0.5rem;
   }
 }
 

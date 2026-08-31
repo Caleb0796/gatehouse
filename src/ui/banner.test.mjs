@@ -21,11 +21,12 @@ test("detectEnvironment reports live WebMCP on a secure page", () => {
   assert.equal(result.hasWebMCP, true);
 });
 
-test("detectEnvironment makes fallback simulation mode explicit", () => {
+test("detectEnvironment makes deterministic demo simulation mode explicit", () => {
   const result = detectEnvironment({
     modelContext: undefined,
     isSecureContext: true,
     userAgent: "ChatGPT/1.0",
+    demoMode: true,
   });
 
   assert.equal(result.mode, "simulation");
@@ -34,11 +35,29 @@ test("detectEnvironment makes fallback simulation mode explicit", () => {
   assert.match(result.title, /模拟模式/);
 });
 
+test("detectEnvironment does not claim an in-page agent on a plain fallback URL", () => {
+  const result = detectEnvironment({
+    modelContext: undefined,
+    isSecureContext: true,
+    userAgent: "Mozilla/5.0 Chrome/151.0.0.0",
+    demoMode: false,
+  });
+
+  assert.equal(result.mode, "unavailable");
+  assert.equal(result.tone, "warning");
+  assert.equal(result.title, "WEBMCP UNAVAILABLE");
+  assert.equal(
+    result.message,
+    "No in-page agent is active on this URL. Enable WebMCP or open the deterministic demo.",
+  );
+});
+
 test("insecure context takes precedence over an exposed API", () => {
   const result = detectEnvironment({
     modelContext,
     isSecureContext: false,
     userAgent: "Mozilla/5.0 Chrome/151.0.0.0",
+    demoMode: true,
   });
 
   assert.equal(result.mode, "insecure");

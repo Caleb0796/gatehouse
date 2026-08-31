@@ -50,6 +50,8 @@ test("application assembly uses the real target and all page modules", async () 
   }
   assert.match(app, /promptRoot\.id = "demo-prompt"/);
   assert.match(app, /surface\.gate\.setDraft\(code, \{ source: "editor" \}\)/);
+  assert.match(app, /initBanner\(requiredElement\("env-banner"\), \{ demoMode \}\)/);
+  assert.match(app, /persistArtifact: artifact => storeArtifact\(artifact\)/);
 });
 
 test("local approval copy discloses its browser-local trust boundary", async () => {

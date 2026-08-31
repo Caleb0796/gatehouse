@@ -48,6 +48,7 @@ export function createReceiptView(artifact, reproHashOk) {
 }
 
 function appendFields(parent, fields) {
+  const document = parent.ownerDocument;
   const list = document.createElement("dl");
   for (const [label, value] of fields) {
     const term = document.createElement("dt");
@@ -60,6 +61,7 @@ function appendFields(parent, fields) {
 }
 
 function appendGroups(parent, groups) {
+  const document = parent.ownerDocument;
   for (const group of groups) {
     const heading = document.createElement("h3");
     heading.textContent = group.title;
@@ -69,13 +71,15 @@ function appendGroups(parent, groups) {
 }
 
 function appendSection(parent, title, fields) {
+  const document = parent.ownerDocument;
   const heading = document.createElement("h2");
   heading.textContent = title;
   parent.append(heading);
   appendFields(parent, fields);
 }
 
-export function renderReceipt(root, artifact, reproHashOk) {
+export function renderReceipt(root, artifact, reproHashOk, deps = {}) {
+  const document = root.ownerDocument;
   const view = createReceiptView(artifact, reproHashOk);
   const heading = document.createElement("h1");
   const guidance = document.createElement("p");
@@ -102,16 +106,19 @@ export function renderReceipt(root, artifact, reproHashOk) {
   appendGroups(root, view.timeline);
 
   const download = document.createElement("a");
-  const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(artifact, null, 2)], { type: "application/json" }));
+  const createObjectURL = deps.createObjectURL ?? URL.createObjectURL.bind(URL);
+  const revokeObjectURL = deps.revokeObjectURL ?? URL.revokeObjectURL.bind(URL);
+  const blobUrl = createObjectURL(new Blob([JSON.stringify(artifact, null, 2)], { type: "application/json" }));
   download.className = "download";
   download.href = blobUrl;
   download.download = `gatehouse-receipt-${artifact.targetId}.json`;
   download.textContent = "Download receipt JSON";
   root.append(download);
-  window.addEventListener("pagehide", () => URL.revokeObjectURL(blobUrl), { once: true });
+  return once(() => revokeObjectURL(blobUrl));
 }
 
-function renderError(root, message) {
+export function renderError(root, message) {
+  const document = root.ownerDocument;
   const heading = document.createElement("h1");
   const guidance = document.createElement("p");
   const error = document.createElement("div");
@@ -121,13 +128,86 @@ function renderError(root, message) {
   error.className = "verification error";
   error.textContent = `Receipt could not be opened: ${message}`;
   root.replaceChildren(heading, guidance, error);
+  return () => {};
 }
 
-async function init() {
-  const root = document.querySelector("#receipt-root");
-  const decoded = await decodeReceipt(location.hash);
-  if (decoded.error) renderError(root, decoded.error);
-  else renderReceipt(root, decoded.artifact, decoded.reproHashOk);
+export function renderLoading(root) {
+  const document = root.ownerDocument;
+  const heading = document.createElement("h1");
+  const guidance = document.createElement("p");
+  const status = document.createElement("p");
+  heading.textContent = "Gatehouse receipt";
+  guidance.className = "guidance";
+  guidance.textContent = "Open the complete receipt link, then paste this link into your GitHub issue.";
+  status.setAttribute("role", "status");
+  status.textContent = "Verifying receipt…";
+  root.replaceChildren(heading, guidance, status);
+  return () => {};
 }
 
-if (typeof document !== "undefined") init();
+function once(dispose) {
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    if (typeof dispose === "function") dispose();
+  };
+}
+
+export function initReceiptPage({
+  root = document.querySelector("#receipt-root"),
+  windowObject = window,
+  decode = decodeReceipt,
+  render = renderReceipt,
+  renderFailure = renderError,
+  renderPending = renderLoading,
+} = {}) {
+  let generation = 0;
+  let disposed = false;
+  let disposeView = () => {};
+
+  const replaceView = (renderView) => {
+    disposeView();
+    disposeView = once(renderView() ?? (() => {}));
+  };
+
+  const verifyCurrentHash = async () => {
+    const currentGeneration = generation + 1;
+    generation = currentGeneration;
+    const hash = windowObject.location.hash;
+    replaceView(() => renderPending(root));
+
+    let decoded;
+    try {
+      decoded = await decode(hash);
+    } catch (error) {
+      decoded = { error: error instanceof Error ? error.message : String(error) };
+    }
+    if (disposed || currentGeneration !== generation) return;
+
+    if (decoded.error) {
+      replaceView(() => renderFailure(root, decoded.error));
+    } else {
+      replaceView(() => render(root, decoded.artifact, decoded.reproHashOk));
+    }
+  };
+
+  const onHashChange = () => {
+    void verifyCurrentHash();
+  };
+  const cleanup = once(() => {
+    disposed = true;
+    generation += 1;
+    windowObject.removeEventListener("hashchange", onHashChange);
+    windowObject.removeEventListener("pagehide", cleanup);
+    disposeView();
+    disposeView = () => {};
+  });
+
+  windowObject.addEventListener("hashchange", onHashChange);
+  windowObject.addEventListener("pagehide", cleanup);
+  void verifyCurrentHash();
+  return cleanup;
+}
+
+if (typeof document !== "undefined") initReceiptPage();

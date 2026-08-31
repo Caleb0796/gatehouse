@@ -201,19 +201,31 @@ function render(root, entries, selectedIndex, select, deps) {
   }
 
   entries.forEach((entry, index) => {
+    const selected = index === selectedIndex;
     const item = document.createElement("li");
     const button = document.createElement("button");
     const title = document.createElement("span");
     const verdict = document.createElement("span");
     const signedAt = document.createElement("time");
     button.type = "button";
-    button.className = index === selectedIndex ? "selected" : "";
+    button.className = selected ? "selected" : "";
+    if (selected) button.setAttribute("aria-current", "true");
     button.addEventListener("click", () => select(index));
+    title.className = "inbox-list__title";
     title.textContent = entry.title;
     verdict.className = `verdict-badge ${entry.verdict.tone}`;
     verdict.textContent = entry.verdict.label;
+    signedAt.className = "inbox-list__time";
+    signedAt.dateTime = entry.signedAt;
     signedAt.textContent = entry.signedAt;
-    button.append(title, verdict, signedAt);
+    button.append(title, verdict);
+    if (selected) {
+      const marker = document.createElement("span");
+      marker.className = "inbox-list__selected";
+      marker.textContent = "Selected";
+      button.append(marker);
+    }
+    button.append(signedAt);
     item.append(button);
     list.append(item);
   });
@@ -238,8 +250,8 @@ export function init(rootEl, deps = {}) {
     }, deps);
   };
 
-  const unsubscribe = eventBus.on("signed", ({ artifact }) => {
-    artifacts = storeArtifact(artifact, storage);
+  const unsubscribe = eventBus.on("signed", () => {
+    artifacts = loadInbox(storage);
     selectedIndex = 0;
     draw();
   });

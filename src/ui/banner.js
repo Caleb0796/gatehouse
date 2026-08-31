@@ -7,7 +7,7 @@ function browserName(userAgent) {
   return "Other browser";
 }
 
-export function detectEnvironment({ modelContext, isSecureContext, userAgent = "" }) {
+export function detectEnvironment({ modelContext, isSecureContext, userAgent = "", demoMode = false }) {
   const hasWebMCP = Boolean(modelContext && typeof modelContext.registerTool === "function");
   const browser = browserName(userAgent);
 
@@ -30,6 +30,17 @@ export function detectEnvironment({ modelContext, isSecureContext, userAgent = "
       hasWebMCP,
       title: "WebMCP live",
       message: "document.modelContext is available. Gatehouse can expose its live tool surface.",
+    };
+  }
+
+  if (!demoMode) {
+    return {
+      mode: "unavailable",
+      tone: "warning",
+      browser,
+      hasWebMCP,
+      title: "WEBMCP UNAVAILABLE",
+      message: "No in-page agent is active on this URL. Enable WebMCP or open the deterministic demo.",
     };
   }
 
@@ -72,10 +83,13 @@ export function init(rootEl, deps = {}) {
   const win = deps.window || window;
   const nav = deps.navigator || navigator;
   const clipboard = deps.clipboard || nav.clipboard;
+  const currentUrl = String(win.location?.href || "<url>");
+  const demoMode = deps.demoMode ?? new URLSearchParams(win.location?.search || "").get("demo") === "1";
   const environment = detectEnvironment({
     modelContext: doc.modelContext,
     isSecureContext: win.isSecureContext,
     userAgent: nav.userAgent,
+    demoMode,
   });
 
   rootEl.replaceChildren();
@@ -94,10 +108,18 @@ export function init(rootEl, deps = {}) {
     `${environment.browser} · secure context: ${win.isSecureContext ? "yes" : "no"} · document.modelContext: ${environment.hasWebMCP ? "detected" : "missing"}`,
     "env-banner__facts",
   );
+  if (environment.mode === "unavailable") {
+    const demoUrl = new URL(currentUrl);
+    demoUrl.searchParams.set("demo", "1");
+    const demoLink = doc.createElement("a");
+    demoLink.className = "env-banner__demo-link";
+    demoLink.href = demoUrl.href;
+    demoLink.textContent = "Open deterministic demo";
+    summary.append(demoLink);
+  }
 
   const setup = doc.createElement("div");
   setup.className = "env-banner__setup";
-  const currentUrl = String(win.location?.href || "<url>");
   const chromeCommand = CHROME_COMMAND.replace("<url>", currentUrl);
 
   const chromeRow = doc.createElement("div");

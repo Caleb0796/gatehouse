@@ -37,8 +37,11 @@ export function isAllowedHost(host, port = PORT) {
 }
 
 export function createGatehouseServer() {
-  return createServer(async (req, res) => {
-    if (!isAllowedHost(req.headers.host)) {
+  let server;
+  server = createServer(async (req, res) => {
+    const address = server.address();
+    const boundPort = address && typeof address === "object" ? address.port : PORT;
+    if (!isAllowedHost(req.headers.host, boundPort)) {
       res.writeHead(403, BASE_HEADERS); res.end("forbidden"); return;
     }
     try {
@@ -60,6 +63,7 @@ export function createGatehouseServer() {
       res.writeHead(404, BASE_HEADERS); res.end("not found");
     }
   });
+  return server;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

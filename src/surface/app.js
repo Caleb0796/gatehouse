@@ -1,4 +1,4 @@
-import { init as initInbox } from "../inbox/inbox.js";
+import { init as initInbox, storeArtifact } from "../inbox/inbox.js";
 import { loadTarget, runDifferential as runRealDifferential } from "../sandbox/runner.js";
 import { bus } from "../shared/bus.js";
 import { init as initSimagent, isDemoMode } from "../simagent/simagent.js";
@@ -211,7 +211,7 @@ export function trackDemoE2E(eventBus, body) {
 
 export async function initSurface({ runDifferential, target }) {
   const demoMode = isDemoMode(window.location.search);
-  initBanner(requiredElement("env-banner"));
+  initBanner(requiredElement("env-banner"), { demoMode });
   initTimeline(requiredElement("timeline"), { bus });
   initScoreboard(requiredElement("scoreboard"), { bus });
   initInbox(requiredElement("inbox-root"), { bus, runDifferential });
@@ -277,6 +277,7 @@ export async function initSurface({ runDifferential, target }) {
     status: signView.status,
     getGateState: surface.gate.getState,
     getCurrentDraft: () => editorView.editor.value,
+    persistArtifact: artifact => storeArtifact(artifact),
     beforeSign: () => waitForDraftUpdates(() => draftUpdate),
   });
 

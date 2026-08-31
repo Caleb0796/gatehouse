@@ -9,14 +9,19 @@ function revoked(eventBus, at) {
   });
 }
 
-export function signArtifact({
+export async function signArtifact({
   artifactDraft,
   gateState,
   currentDraft,
+  persistArtifact,
   eventBus = bus,
   now = () => new Date(),
   userAgent = () => navigator.userAgent,
 }) {
+  if (typeof persistArtifact !== "function") {
+    throw new TypeError("signArtifact requires a persistArtifact callback");
+  }
+
   const signedAt = now();
   const visibleDraft = currentDraft === undefined ? gateState.draft : currentDraft;
   if (
@@ -41,6 +46,14 @@ export function signArtifact({
     signedAt: at,
     ua: userAgent(),
   };
+  try {
+    await persistArtifact(artifact);
+  } catch {
+    return {
+      code: "LOCAL_SAVE_FAILED",
+      message: "The report could not be saved locally.",
+    };
+  }
   eventBus.emit("signed", { artifact });
   return { artifact };
 }
@@ -50,6 +63,7 @@ export function initSigning({
   status,
   getGateState,
   getCurrentDraft,
+  persistArtifact,
   beforeSign = () => undefined,
   eventBus = bus,
   now,
@@ -74,16 +88,20 @@ export function initSigning({
     button.disabled = true;
     await beforeSign();
     const gateState = getGateState();
-    const result = signArtifact({
+    const result = await signArtifact({
       artifactDraft,
       gateState,
       currentDraft: getCurrentDraft ? getCurrentDraft() : gateState.draft,
+      persistArtifact,
       eventBus,
       now,
       userAgent,
     });
     if (Object.hasOwn(result, "artifact")) {
       status.textContent = "Locally approved";
+    } else if (result.code === "LOCAL_SAVE_FAILED") {
+      status.textContent = "Local save failed · try again";
+      button.disabled = false;
     } else {
       artifactDraft = null;
       status.textContent = "Draft changed · run and stage again";

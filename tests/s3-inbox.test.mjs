@@ -18,8 +18,12 @@ const fixture = JSON.parse(await readFile(
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
+    setItemCalls: [],
     getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
+    setItem(key, value) {
+      this.setItemCalls.push({ key, value });
+      values.set(key, value);
+    },
   };
 }
 
@@ -31,6 +35,7 @@ class Element {
     this.listeners = {};
     this.hidden = false;
     this.textContent = "";
+    this.attributes = new Map();
   }
 
   append(...children) {
@@ -43,6 +48,18 @@ class Element {
 
   addEventListener(type, listener) {
     this.listeners[type] = listener;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
   }
 }
 
@@ -87,7 +104,7 @@ test("builds a newest-first list with verdict badges", () => {
   ]);
 });
 
-test("signed events persist, reveal, list, and show report details", () => {
+test("signed events reload already-persisted reports without storing twice", () => {
   const storage = memoryStorage();
   const handlers = new Map();
   const eventBus = {
@@ -102,9 +119,12 @@ test("signed events persist, reveal, list, and show report details", () => {
 
   const unsubscribe = init(root, { storage, bus: eventBus });
   assert.equal(root.hidden, true);
+  storeArtifact(fixture, storage);
+  assert.equal(storage.setItemCalls.length, 1);
   handlers.get("signed")({ artifact: fixture });
 
   assert.equal(root.hidden, false);
+  assert.equal(storage.setItemCalls.length, 1);
   assert.deepEqual(loadInbox(storage), [fixture]);
   const rendered = textTree(root);
   assert.match(rendered, /REGRESSION_DEMONSTRATED/);
@@ -117,11 +137,25 @@ test("signed events persist, reveal, list, and show report details", () => {
 
   const second = structuredClone(fixture);
   second.targetId = "newest-report";
+  storeArtifact(second, storage);
   handlers.get("signed")({ artifact: second });
+  assert.equal(storage.setItemCalls.length, 2);
   assert.match(textTree(root), /gatehouse-demo-lib · newest-report/);
-  findByTag(root, "button")[1].listeners.click();
+  let listButtons = findByTag(root, "button").slice(0, 2);
+  assert.equal(listButtons[0].getAttribute("aria-current"), "true");
+  assert.equal(listButtons[1].getAttribute("aria-current"), null);
+  assert.match(textTree(listButtons[0]), /Selected/);
+  assert.doesNotMatch(textTree(listButtons[1]), /Selected/);
+
+  listButtons[1].listeners.click();
+  listButtons = findByTag(root, "button").slice(0, 2);
+  assert.equal(listButtons[0].getAttribute("aria-current"), null);
+  assert.equal(listButtons[1].getAttribute("aria-current"), "true");
+  assert.doesNotMatch(textTree(listButtons[0]), /Selected/);
+  assert.match(textTree(listButtons[1]), /Selected/);
   const detail = findByTag(root, "article")[0];
   assert.match(textTree(detail), /gatehouse-demo-lib · demo-lib-001/);
+  assert.equal(findByTag(root, "time")[1].dateTime, fixture.signedAt);
 
   unsubscribe();
   assert.equal(handlers.has("signed"), false);
@@ -202,8 +236,10 @@ test("releases generated detail downloads on redraw and dispose", () => {
     revokeObjectURL: value => revoked.push(value),
   });
 
+  storeArtifact(fixture, storage);
   handlers.get("signed")({ artifact: fixture });
-  handlers.get("signed")({ artifact: structuredClone(fixture) });
+  storeArtifact(structuredClone(fixture), storage);
+  handlers.get("signed")({ artifact: fixture });
   assert.deepEqual(revoked, ["blob:adopt-1"]);
 
   unsubscribe();
