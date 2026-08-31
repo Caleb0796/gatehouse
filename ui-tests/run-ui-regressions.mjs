@@ -313,7 +313,7 @@ async function testDarkModeReplayContrast(page, baseUrl) {
   await page.emulateMedia({ colorScheme: "dark" });
   await seedInbox(page, baseUrl, [createArtifact({ signedAt: "2026-08-29T12:00:00.000Z" })]);
   await page.locator(".inbox-replay button").click();
-  await page.getByText("Replay matches recorded runs", { exact: true }).waitFor();
+  await page.getByText("Replay matches recorded samples", { exact: true }).waitFor();
 
   const ratio = await contrastRatio(page, ".replay-result.consistent");
   assert.ok(ratio >= 4.5, `dark-mode replay contrast is ${ratio.toFixed(2)}:1`);
@@ -500,7 +500,7 @@ async function testUntrustedArtifactTextRendering(page, baseUrl) {
   artifact.library = payload;
   artifact.repro = `throw new Error(${JSON.stringify(payload)});`;
   artifact.reproSha256 = sha256(artifact.repro);
-  artifact.runs[0].logs = [payload];
+  artifact.samples.bad[0].logs = [payload];
   artifact.timeline[0].detail = payload;
   artifact.ua = payload;
   artifact.issueUrl = payload;
@@ -513,7 +513,7 @@ async function testUntrustedArtifactTextRendering(page, baseUrl) {
   const encoded = await encodeOnPage(page, artifact);
   assert.ok(encoded.url);
   await page.goto(new URL(encoded.url, `${baseUrl}/`).href);
-  await page.getByText("repro hash verified ✓", { exact: true }).waitFor();
+  await page.getByText("Repro hash self-consistent ✓", { exact: true }).waitFor();
   assert.match(await page.locator("#receipt-root").innerText(), /<img src=x onerror=/);
   assert.equal(await page.locator("#receipt-root img, #receipt-root script").count(), 0);
   assert.equal(await page.evaluate(() => window.__gatehouseXss), undefined);
