@@ -61,7 +61,8 @@ function renderTarget(rootEl, target) {
     const issue = document.createElement("a");
     issue.href = target.issueUrl;
     issue.textContent = "View upstream issue";
-    issue.rel = "noreferrer";
+    issue.target = "_blank";
+    issue.rel = "noopener noreferrer";
     rootEl.append(issue);
   }
 }

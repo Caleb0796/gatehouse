@@ -2,9 +2,9 @@
 
 > Frozen interfaces between build lanes. Changes only via the coordinator (version bump + changelog).
 
-## 3. CONTRACTS v2（冻结；改动只经协调者，版本递增广播）
+## 3. CONTRACTS v2 (frozen; changes require a coordinator-managed version bump and broadcast)
 
-### 3.1 TargetSpec —— `targets/<id>/manifest.json`（A3/A6/D2 增补）
+### 3.1 TargetSpec — `targets/<id>/manifest.json` (A3/A6/D2 additions)
 ```json
 {
   "id": "marked-1234", "library": "marked", "kind": "real",
@@ -17,48 +17,48 @@
   "demoRepros": { "broken": "<js>", "weak": "<js>", "real": "<js>" }
 }
 ```
-`demoRepros` = 模拟 agent 三轮脚本的素材（broken→FAIL_BOTH、weak→PASS_BOTH、real→绿），S1 随目标一起交付，S4 只消费不发明（A6）。`kind:"seed"` 时页面与 README 显著标注 demo target。
+`demoRepros` contains the simulated agent's three-round material (broken→FAIL_BOTH, weak→PASS_BOTH, real→green). S1 ships it with the target; S4 consumes it without inventing alternatives (A6). When `kind:"seed"`, the page and README must prominently label the target as a demo target.
 
-### 3.2 沙盒 postMessage 协议（B3/B9 加固版）
+### 3.2 Sandbox postMessage protocol (B3/B9 hardened)
 ```
-parent→iframe  { t:"load", bundles:[{sha256, text}] }            // 每目标一次，iframe 按 sha 缓存（B9）
+parent→iframe  { t:"load", bundles:[{sha256, text}] }            // once per target; iframe caches by sha (B9)
 parent→iframe  { t:"run",  runId, bundleSha, globalName, code, timeoutMs }
 iframe→parent  { t:"ready" } / { t:"result", runId, verdict, logs, durationMs }
 ```
-**parent 侧加固（B3）**：只受理 `e.source === iframe.contentWindow` 的消息；`ready` 之前一律丢弃；每 runId 只取第一条 result，后到丢弃；30s 看门狗失联即拆 iframe 重建判 timeout。**runner 侧**：worker 消息必须符合内部信封形状，否则按 error 收束；preamble 里 `self.postMessage = undefined` 遮蔽后经闭包引用回发（提高伪造成本；**不宣称杜绝**——残余风险按 §0.4 写进威胁模型）。bundle 由 parent fetch 并对 manifest sha256 校验，失败拒运行。logs 上限 100 条 × 500 字符。
+**Parent-side hardening (B3):** accept messages only when `e.source === iframe.contentWindow`; discard every message before `ready`; accept only the first result for each runId and discard later results; if the 30-second watchdog expires, tear down and rebuild the iframe and return timeout. **Runner side:** worker messages must match the internal envelope shape or settle as error; the preamble shadows `self.postMessage = undefined` and sends through a closure-held reference (raising the cost of forgery, **not claiming to prevent it completely**—record the residual risk in the §0.4 threat model). The parent fetches each bundle and verifies its SHA-256 against the manifest, rejecting execution on mismatch. Logs are limited to 100 entries × 500 characters.
 
-### 3.3 Repro 语义
-`assert(condition, message)` 注入；`pass`=跑完无抛出、`fail`=抛 ReproAssertionError、`error`=其它异常、`timeout`=超时被 terminate。**write_repro 入参上限 8KB**（B5，v1 的 50KB 作废）。
+### 3.3 Repro semantics
+`assert(condition, message)` is injected; `pass` means execution completes without throwing, `fail` means ReproAssertionError is thrown, `error` means any other exception, and `timeout` means the worker was terminated after the time limit. **write_repro input is limited to 8 KB** (B5; the v1 50 KB limit is obsolete).
 
-### 3.4 RunResult / DifferentialVerdict（A3/A4 修订）
-`runDifferential(code, {targetId, timeoutMs?}) → Promise<DifferentialVerdict>`——**targetId 必填**，重放锚定同一 manifest 与 bundle 哈希（A3）。
-**judge 是 16 组合全覆盖的全函数，按序判定**（A4）：
+### 3.4 RunResult / DifferentialVerdict (A3/A4 revisions)
+`runDifferential(code, {targetId, timeoutMs?}) → Promise<DifferentialVerdict>`—**targetId is required**, anchoring replay to the same manifest and bundle hashes (A3).
+**judge is a total function covering all 16 combinations and evaluates them in this order** (A4):
 1. `bad:"fail" && good:"pass"` → `green:true, reason:"REGRESSION_DEMONSTRATED"`
-2. `bad:"timeout"` → `BAD_TIMEOUT`；3. `bad:"error"` → `BAD_ERROR`；4. `good:"timeout"` → `GOOD_TIMEOUT`；5. `good:"error"` → `GOOD_ERROR`
-6. `bad:"pass" && good:"fail"` → `INVERTED`；7. 双 fail → `FAIL_BOTH`；8. 双 pass → `PASS_BOTH`
-`tests/s1-differential.test.mjs` 必须枚举全部 16 组合断言归类（不是 7 案是 16 案）。
+2. `bad:"timeout"` → `BAD_TIMEOUT`; 3. `bad:"error"` → `BAD_ERROR`; 4. `good:"timeout"` → `GOOD_TIMEOUT`; 5. `good:"error"` → `GOOD_ERROR`
+6. `bad:"pass" && good:"fail"` → `INVERTED`; 7. both fail → `FAIL_BOTH`; 8. both pass → `PASS_BOTH`
+`tests/s1-differential.test.mjs` must enumerate and assert the classification of all 16 combinations (16 cases, not 7).
 
-### 3.5 SubmissionArtifact（A3 增补）
-v1 字段 + `"issueUrl": string|null`、`"targetKind": "real"|"seed"`。无姓名字段不变。
+### 3.5 SubmissionArtifact (A3 additions)
+The v1 fields plus `"issueUrl": string|null` and `"targetKind": "real"|"seed"`. It still has no name field.
 
-兼容语义：v1 wire 名 `signedAt`、timeline event `"signed"` 与相关内部标识继续保留，但只表示浏览器记录了一次本地 approval。该 approval 未认证、不验证身份、不是密码学签名，且自动化可以触发页面控件。
+Compatibility semantics: retain the v1 wire name `signedAt`, timeline event `"signed"`, and related internal identifiers, but they mean only that the browser recorded local approval. That approval is unauthenticated, does not verify identity, is not a cryptographic signature, and can be activated by automation.
 
-### 3.6 Surface 事件（`src/shared/bus.js`，S2 发、S3/S4 听）
+### 3.6 Surface events (`src/shared/bus.js`; S2 emits, S3/S4 listen)
 ```js
 bus.emit("surface", { change:"registered"|"revoked", tool:"submit_report", reason:"differential green"|"repro edited"|"differential no longer green", at:Date.now() });
-bus.emit("run",     { verdict: DifferentialVerdict });      // S4 时间线/计分牌
-bus.emit("draft",   { reproSha256, length, source: "tool" | "editor" }); // S4 草稿状态
-bus.emit("staged",  { artifactDraft });                     // S2→本地 approval UI
-bus.emit("signed",  { artifact: SubmissionArtifact });      // v1 兼容事件：本地 approval 后由 S3 入库
+bus.emit("run",     { verdict: DifferentialVerdict });      // S4 timeline/scoreboard
+bus.emit("draft",   { reproSha256, length, source: "tool" | "editor" }); // S4 draft status
+bus.emit("staged",  { artifactDraft });                     // S2→local approval UI
+bus.emit("signed",  { artifact: SubmissionArtifact });      // v1 compatibility event: S3 stores after local approval
 ```
 
-`draft.source` 标识草稿来自 `write_repro` 工具还是可见编辑器输入；UI 消费者据此同步工具写入，同时避免较早完成的异步写入覆盖更新的编辑器内容。
+`draft.source` identifies whether a draft came from the `write_repro` tool or visible editor input. UI consumers use it to synchronize tool writes while preventing an earlier asynchronous write from overwriting newer editor content.
 
-### 3.7 回执 URL（B5/B6 重写）
-编码：`JSON.stringify(artifact)` → `CompressionStream("deflate-raw")` → base64url → `receipt.html#a=<...>`。**预算：编码后 ≤6KB 走 URL；超限只提供下载 JSON**（write_repro 8KB 上限 + logs 每 run 截 10 条使 URL 路径为常态）。
-解码校验（B6）：payload 解压前上限 64KB；解出后过**严格 schema 全字段校验**（手写，不用 assertShape），并要求顶层 bad/good bundle hash 与对应 run 一致；重算 `sha256(repro)` 比对，标签写 **"repro hash verified ✓"**（不写笼统 verified）；版本/哈希字段原样展示注明 as-claimed。**渲染只用 `textContent`，全页 grep 无 `innerHTML`**；解码失败返回 `{error}` 页面友好显示，不 throw。
+### 3.7 Receipt URL (B5/B6 rewrite)
+Encoding: `JSON.stringify(artifact)` → `CompressionStream("deflate-raw")` → base64url → `receipt.html#a=<...>`. **Budget: use a URL when the encoded result is ≤6 KB; over the limit, offer only a JSON download** (the 8 KB write_repro limit plus logs clipped to 10 entries per run makes the URL path typical).
+Decode validation (B6): limit the compressed payload to 64 KB; after decompression, apply **strict validation of every schema field** (handwritten, without assertShape), and require the top-level bad/good bundle hashes to match their corresponding runs; recompute and compare `sha256(repro)`, using the label **"repro hash verified ✓"** (not a generic verified label); display version/hash fields unchanged and mark them as claimed. **Render only with `textContent`; a full-page grep must find no `innerHTML`**. Decode failure returns a friendly `{error}` page instead of throwing.
 
-### 3.8 冻结层代码（S0 落盘，全员只读）
+### 3.8 Frozen-layer code (landed by S0; read-only for everyone)
 
 `src/shared/hash.js`
 ```js
@@ -75,15 +75,15 @@ export const bus = {
   on:   (type, fn) => { const h = e => fn(e.detail); target.addEventListener(type, h); return () => target.removeEventListener(type, h); },
 };
 ```
-`src/shared/schema.js`：`assertShape(obj, spec)` 极简结构校验（键存在 + typeof）。**仅用于 postMessage 信封形状；工具入参与回执解码必须手写严格校验，不得依赖它**（A5）。S0 连同 `tests/shared.test.mjs` 落盘。
+`src/shared/schema.js`: `assertShape(obj, spec)` performs minimal structural validation (key presence + typeof). **Use it only for postMessage envelope shape; tool input and receipt decoding require handwritten strict validation and must not depend on it** (A5). S0 lands it together with `tests/shared.test.mjs`.
 
-### 3.9 fixtures（S0 落盘）
-`contracts/fixtures/`：`differential-green.json`、`differential-failboth.json`、`differential-inverted.json`、`artifact.sample.json`——从 §3.4/§3.5 实例化、字段齐全，供 S2/S3/S4/S5 集成前 mock。
+### 3.9 Fixtures (landed by S0)
+`contracts/fixtures/`: `differential-green.json`, `differential-failboth.json`, `differential-inverted.json`, and `artifact.sample.json`—complete-field instances of §3.4/§3.5 for S2/S3/S4/S5 mocks before integration.
 
-### 3.10 工具实现表（新增，A6）
-`src/surface/surface.js` 导出 `getToolTable() → { [name]: { definition, execute } }`——modelContext 注册、S4 模拟 agent 无 WebMCP 时直调、S5 `?test=1` hook 三方共用同一张表。**hook 只在 `?test=1` 挂 `window.__gatehouseTestHook = { getTools, executeTool }`**，且 evals 结果里凡经 hook 跑的案例标 `tier:"logic"`（见 §5-S5）。
+### 3.10 Tool implementation table (new, A6)
+`src/surface/surface.js` exports `getToolTable() → { [name]: { definition, execute } }`. modelContext registration, S4's direct calls when the simulated agent has no WebMCP, and the S5 `?test=1` hook all share this table. **Attach `window.__gatehouseTestHook = { getTools, executeTool }` only under `?test=1`**, and label every eval case run through the hook with `tier:"logic"` (see §5-S5).
 
-### 3.11 index.html 槽位契约（新增，A7）
+### 3.11 index.html slot contract (new, A7)
 ```html
 <header id="env-banner"></header>
 <main>
@@ -93,11 +93,12 @@ export const bus = {
 </main>
 <footer id="scoreboard"></footer>
 ```
-每模块导出 `init(rootEl, deps)`；S0 落骨架，S2 拥有装配顺序与样式基线；其它线只认自己的槽位 id，不改壳。
+Every module exports `init(rootEl, deps)`. S0 lands the skeleton, S2 owns assembly order and the style baseline, and other lanes recognize only their own slot id without changing the shell.
 
 ---
 
 
 ## Changelog
+- v2 documentation translation (2026-08-31): converted explanatory text to English without changing any frozen interface.
 - v2 clarification (2026-08-30): documented `signed` / `signedAt` as legacy names for unauthenticated browser-local approval, and added `draft.source` so UI consumers can distinguish tool writes from editor input.
 - v2 (2026-08-29): initial frozen set, post adversarial review.

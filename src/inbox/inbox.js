@@ -64,6 +64,7 @@ export async function initReceiptShare(rootEl, artifact, deps = {}) {
   const heading = document.createElement("h4");
   const status = document.createElement("p");
   heading.textContent = "Shareable receipt";
+  status.setAttribute("aria-live", "polite");
   status.textContent = "Preparing receipt…";
   rootEl.replaceChildren(heading, status);
 
@@ -210,7 +211,10 @@ function render(root, entries, selectedIndex, select, deps) {
     button.type = "button";
     button.className = selected ? "selected" : "";
     if (selected) button.setAttribute("aria-current", "true");
-    button.addEventListener("click", () => select(index));
+    button.addEventListener("click", () => {
+      select(index);
+      root.querySelector?.('.inbox-list > li > button[aria-current="true"]')?.focus();
+    });
     title.className = "inbox-list__title";
     title.textContent = entry.title;
     verdict.className = `verdict-badge ${entry.verdict.tone}`;

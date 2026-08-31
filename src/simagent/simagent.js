@@ -151,6 +151,7 @@ export function init(rootEl, deps = {}) {
 
   const status = doc.createElement("p");
   status.className = "simagent__status";
+  status.setAttribute("aria-live", "polite");
   status.textContent = "Ready";
 
   const list = doc.createElement("ol");

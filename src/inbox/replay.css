@@ -6,11 +6,13 @@
 .replay-result.consistent {
   background: #edf7ed;
   border-color: #2e7d32;
+  color: #1b3a24;
 }
 
 .replay-result.changed {
   background: #fff8db;
   border-color: #b7791f;
+  color: #3d2d00;
 }
 
 .replay-columns {

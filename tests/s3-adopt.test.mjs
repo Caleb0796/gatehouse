@@ -24,6 +24,7 @@ class Element {
     this.children = [];
     this.listeners = {};
     this.textContent = "";
+    this.attributes = new Map();
   }
 
   replaceChildren(...children) {
@@ -32,6 +33,14 @@ class Element {
 
   addEventListener(type, listener) {
     this.listeners[type] = listener;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
   }
 }
 
@@ -121,6 +130,7 @@ test("renders working copy and download controls", async () => {
 
   const copy = root.children.find(child => child.tagName === "button");
   const download = root.children.find(child => child.tagName === "a");
+  assert.equal(root.children.at(-1).getAttribute("aria-live"), "polite");
   await copy.listeners.click();
 
   assert.equal(copied[0], createRegressionTest(fixture).source);

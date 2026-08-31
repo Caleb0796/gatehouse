@@ -39,6 +39,10 @@ export function isAllowedHost(host, port = PORT) {
   ]).has(value);
 }
 
+export function isAllowedMethod(method) {
+  return method === "GET" || method === "HEAD";
+}
+
 export function createGatehouseServer() {
   let server;
   server = createServer(async (req, res) => {
@@ -46,6 +50,11 @@ export function createGatehouseServer() {
     const boundPort = address && typeof address === "object" ? address.port : PORT;
     if (!isAllowedHost(req.headers.host, boundPort)) {
       res.writeHead(403, BASE_HEADERS); res.end("forbidden"); return;
+    }
+    if (!isAllowedMethod(req.method)) {
+      res.writeHead(405, { ...BASE_HEADERS, Allow: "GET, HEAD" });
+      res.end("method not allowed");
+      return;
     }
     try {
       let p = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
