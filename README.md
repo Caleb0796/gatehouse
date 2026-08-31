@@ -19,7 +19,7 @@ This is more than a form exposed as a tool. WebMCP discovery communicates the pa
 
 ## Live demo
 
-The final public deployment URL has not been published yet. Until it is available, run the exact static application locally with the same Content Security Policy used in deployment:
+The stable production deployment is [gatehouse-app.vercel.app](https://gatehouse-app.vercel.app/). Vercel's hash-specific deployment URLs are immutable snapshots, so use the stable domain for the current application. To run the same static application locally with the deployment Content Security Policy:
 
 ```sh
 npm ci

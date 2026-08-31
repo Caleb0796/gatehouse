@@ -72,6 +72,7 @@ class Element {
     this.children = [];
     this.listeners = {};
     this.textContent = "";
+    this.attributes = new Map();
   }
 
   append(...children) {
@@ -84,6 +85,14 @@ class Element {
 
   addEventListener(type, listener) {
     this.listeners[type] = listener;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
   }
 }
 
@@ -141,6 +150,8 @@ test("renders recorded and current samples in a green matching frame", async () 
   const root = new Element(document, "section");
   initReplay(root, fixture, { runDifferential: async () => green });
 
+  assert.equal(root.children[1].getAttribute("aria-live"), "polite");
+
   await root.children[0].listeners.click();
 
   assert.equal(root.children[1].className, "replay-result consistent");
@@ -175,7 +186,9 @@ test("defines visible green and yellow replay frames in an external stylesheet",
     "utf8",
   );
   assert.match(styles, /\.replay-result\.consistent[\s\S]*border-color: #2e7d32/);
+  assert.match(styles, /\.replay-result\.consistent[\s\S]*color: #1b3a24/);
   assert.match(styles, /\.replay-result\.changed[\s\S]*border-color: #b7791f/);
+  assert.match(styles, /\.replay-result\.changed[\s\S]*color: #3d2d00/);
 });
 
 test("allows long SHA and log values to shrink and wrap inside both replay columns", async () => {

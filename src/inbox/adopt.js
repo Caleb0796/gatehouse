@@ -74,6 +74,7 @@ export function initAdopt(rootEl, artifact, deps = {}) {
   const download = document.createElement("a");
   const status = document.createElement("span");
   const blobUrl = createObjectURL(new Blob([source], { type: "text/javascript" }));
+  status.setAttribute("aria-live", "polite");
 
   heading.textContent = "Adopt as regression test";
   note.textContent = `Review before enabling — untrusted code. ${guidance}`;

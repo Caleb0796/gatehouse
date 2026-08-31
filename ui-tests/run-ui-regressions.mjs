@@ -144,6 +144,26 @@ async function assertEnglishPage(page, label) {
   assert.doesNotMatch(await page.locator("body").innerText(), /\p{Script=Han}/u, label);
 }
 
+async function contrastRatio(page, selector) {
+  return page.locator(selector).evaluate((element) => {
+    const channel = value => {
+      const normalized = value / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = color => {
+      const [red, green, blue] = color.match(/\d+/g).slice(0, 3).map(Number).map(channel);
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const style = getComputedStyle(element);
+    const foreground = luminance(style.color);
+    const background = luminance(style.backgroundColor);
+    return (Math.max(foreground, background) + 0.05)
+      / (Math.min(foreground, background) + 0.05);
+  });
+}
+
 async function runCase(browser, baseUrl, name, run) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
@@ -187,6 +207,7 @@ async function testPlainToDemo(page, baseUrl) {
   await page.goto(`${baseUrl}/?source=ui-regression`);
   await waitForApp(page);
 
+  assert.equal(await page.locator("#env-banner").getAttribute("role"), null);
   assert.equal(await page.locator("#env-banner").getAttribute("data-mode"), "unavailable");
   assert.equal(await page.locator(".env-banner__title").textContent(), "WEBMCP UNAVAILABLE");
   assert.equal(
@@ -206,6 +227,9 @@ async function testPlainToDemo(page, baseUrl) {
 
   assert.equal(await page.locator("#env-banner").getAttribute("data-mode"), "simulation");
   assert.equal(await page.locator(".simagent__start").textContent(), "Run three-round agent demo");
+  const upstream = page.getByRole("link", { name: "View upstream issue" });
+  assert.equal(await upstream.getAttribute("target"), "_blank");
+  assert.equal(await upstream.getAttribute("rel"), "noopener noreferrer");
   await assertEnglishPage(page, "deterministic demo should be English-only");
 }
 
@@ -216,6 +240,7 @@ async function testCompleteDemoWorkflow(page, baseUrl) {
   await page.locator('body[data-e2e="pass"]').waitFor({ timeout: 20_000 });
 
   assert.equal(await page.locator(".simagent__status").textContent(), "Complete via in-page tools");
+  assert.equal(await page.locator(".simagent__status").getAttribute("aria-live"), "polite");
   const review = page.locator(".sign-panel__review");
   await review.waitFor({ state: "visible" });
   const reviewText = await review.innerText();
@@ -243,8 +268,11 @@ async function testCompleteDemoWorkflow(page, baseUrl) {
   await page.getByRole("button", { name: "Approve & save locally" }).click();
   await page.getByText("Locally approved", { exact: true }).waitFor();
   await page.locator("#inbox-root").waitFor({ state: "visible" });
+  assert.equal(await page.locator(".replay-output").getAttribute("aria-live"), "polite");
   await page.locator(".inbox-replay button").click();
   await page.getByText("Replay matches recorded samples", { exact: true }).waitFor();
+  assert.equal(await page.locator(".inbox-receipt p").last().getAttribute("aria-live"), "polite");
+  assert.equal(await page.locator(".inbox-adopt span").getAttribute("aria-live"), "polite");
 
   const receipt = page.locator(".inbox-receipt a", { hasText: "Open receipt" });
   await receipt.waitFor({ state: "visible" });
@@ -279,6 +307,16 @@ async function testDarkModePrompt(page, baseUrl) {
     buttonBackground: "rgb(255, 255, 255)",
     buttonText: "rgb(23, 32, 51)",
   });
+}
+
+async function testDarkModeReplayContrast(page, baseUrl) {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await seedInbox(page, baseUrl, [createArtifact({ signedAt: "2026-08-29T12:00:00.000Z" })]);
+  await page.locator(".inbox-replay button").click();
+  await page.getByText("Replay matches recorded runs", { exact: true }).waitFor();
+
+  const ratio = await contrastRatio(page, ".replay-result.consistent");
+  assert.ok(ratio >= 4.5, `dark-mode replay contrast is ${ratio.toFixed(2)}:1`);
 }
 
 async function stageVerifiedReport(page, baseUrl) {
@@ -419,6 +457,10 @@ async function testInboxResponsiveAndSelection(page, baseUrl) {
 
   await buttons.nth(1).click();
   buttons = page.locator(".inbox-list > li > button");
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.getAttribute("aria-current")),
+    "true",
+  );
   assert.equal(await buttons.nth(0).getAttribute("aria-current"), null);
   assert.equal(await buttons.nth(1).getAttribute("aria-current"), "true");
   assert.match(await buttons.nth(1).textContent(), /Selected/);
@@ -452,6 +494,31 @@ async function testInboxResponsiveAndSelection(page, baseUrl) {
   }
 }
 
+async function testUntrustedArtifactTextRendering(page, baseUrl) {
+  const payload = '<img src=x onerror="window.__gatehouseXss=true">';
+  const artifact = createArtifact({ signedAt: "2026-08-29T13:00:00.000Z" });
+  artifact.library = payload;
+  artifact.repro = `throw new Error(${JSON.stringify(payload)});`;
+  artifact.reproSha256 = sha256(artifact.repro);
+  artifact.runs[0].logs = [payload];
+  artifact.timeline[0].detail = payload;
+  artifact.ua = payload;
+  artifact.issueUrl = payload;
+
+  await seedInbox(page, baseUrl, [artifact]);
+  assert.match(await page.locator("#inbox-root").innerText(), /<img src=x onerror=/);
+  assert.equal(await page.locator("#inbox-root img, #inbox-root script").count(), 0);
+  assert.equal(await page.evaluate(() => window.__gatehouseXss), undefined);
+
+  const encoded = await encodeOnPage(page, artifact);
+  assert.ok(encoded.url);
+  await page.goto(new URL(encoded.url, `${baseUrl}/`).href);
+  await page.getByText("repro hash verified ✓", { exact: true }).waitFor();
+  assert.match(await page.locator("#receipt-root").innerText(), /<img src=x onerror=/);
+  assert.equal(await page.locator("#receipt-root img, #receipt-root script").count(), 0);
+  assert.equal(await page.evaluate(() => window.__gatehouseXss), undefined);
+}
+
 const { server, baseUrl } = await startServer();
 let browser;
 const failures = [];
@@ -461,10 +528,12 @@ try {
     ["plain URL opens deterministic demo", page => testPlainToDemo(page, baseUrl)],
     ["complete demo workflow", page => testCompleteDemoWorkflow(page, baseUrl)],
     ["dark-mode demo prompt contrast", page => testDarkModePrompt(page, baseUrl)],
+    ["dark-mode replay contrast", page => testDarkModeReplayContrast(page, baseUrl)],
     ["QuotaExceededError approval recovery", page => testPersistenceFailure(page, baseUrl, "QuotaExceededError")],
     ["SecurityError approval recovery", page => testPersistenceFailure(page, baseUrl, "SecurityError")],
     ["Receipt follows latest fragment", page => testReceiptHashChanges(page, baseUrl)],
     ["Inbox selection and responsive layouts", page => testInboxResponsiveAndSelection(page, baseUrl)],
+    ["untrusted artifact text stays inert", page => testUntrustedArtifactTextRendering(page, baseUrl)],
   ];
   for (const [name, run] of cases) {
     try {

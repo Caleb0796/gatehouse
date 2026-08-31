@@ -112,6 +112,7 @@ export function initReplay(rootEl, artifact, deps = {}) {
   button.type = "button";
   button.textContent = "Replay";
   output.className = "replay-output";
+  output.setAttribute("aria-live", "polite");
   button.addEventListener("click", async () => {
     button.disabled = true;
     output.textContent = "Replaying…";

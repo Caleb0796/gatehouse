@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { isAllowedHost } from "../scripts/dev-server.mjs";
+import { isAllowedHost, isAllowedMethod } from "../scripts/dev-server.mjs";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -24,6 +24,8 @@ test("development server serves the production CSP on loopback only", async () =
   assert.match(server, /frame-ancestors 'none'/);
   assert.match(server, /relative\(ROOT, fp\)/);
   assert.match(server, /part\.startsWith\("\."\)/);
+  assert.match(server, /if \(!isAllowedMethod\(req\.method\)\)/);
+  assert.match(server, /writeHead\(405, \{ \.\.\.BASE_HEADERS, Allow: "GET, HEAD" \}\)/);
   assert.match(server, /writeHead\(403, BASE_HEADERS\)/);
   assert.match(server, /writeHead\(404, BASE_HEADERS\)/);
 });
@@ -36,6 +38,14 @@ test("development server rejects DNS-rebinding Host values", () => {
   assert.equal(isAllowedHost("attacker.example"), false);
   assert.equal(isAllowedHost("127.0.0.1.attacker.example:8080"), false);
   assert.equal(isAllowedHost(undefined), false);
+});
+
+test("development server accepts only static read methods", () => {
+  assert.equal(isAllowedMethod("GET"), true);
+  assert.equal(isAllowedMethod("HEAD"), true);
+  for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", undefined]) {
+    assert.equal(isAllowedMethod(method), false, String(method));
+  }
 });
 
 test("deployment and checker enforce the complete security header baseline", async () => {
@@ -58,6 +68,23 @@ test("deployment and checker enforce the complete security header baseline", asy
   assert.equal(headers["X-Frame-Options"], "DENY");
   assert.equal(headers["Referrer-Policy"], "no-referrer");
   assert.equal(headers["Permissions-Policy"], "camera=(), geolocation=(), microphone=()");
+});
+
+test("production deployment excludes internal and generated test material", async () => {
+  const ignored = new Set((await read("../.vercelignore")).split(/\r?\n/).filter(Boolean));
+  for (const path of [
+    ".github",
+    "contracts",
+    "dev",
+    "docs",
+    "evals",
+    "scripts",
+    "tests",
+    "test-results",
+    "ui-tests",
+  ]) {
+    assert.equal(ignored.has(path), true, path);
+  }
 });
 
 test("SYNC-0 harness preserves the opaque iframe and termination invariants", async () => {

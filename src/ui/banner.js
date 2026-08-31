@@ -100,7 +100,6 @@ export function init(rootEl, deps = {}) {
   rootEl.replaceChildren();
   rootEl.className = `env-banner env-banner--${environment.tone}`;
   rootEl.dataset.mode = environment.mode;
-  rootEl.setAttribute("role", "status");
 
   const summary = doc.createElement("div");
   summary.className = "env-banner__summary";

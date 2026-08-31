@@ -314,6 +314,7 @@ test("offers a small signed artifact as an openable and copyable receipt link", 
   assert.match(open.href, /^https:\/\/gatehouse\.test\/app\/receipt\.html#a=[A-Za-z0-9_-]+&h=[a-f0-9]{64}$/);
   assert.equal(open.textContent, "Open receipt");
   assert.equal(copy.textContent, "Copy receipt link");
+  assert.equal(findByTag(root, "p").at(-1).getAttribute("aria-live"), "polite");
   assert.match(textTree(root), /fits the 6 KB sharing limit/);
 
   await copy.listeners.click();
