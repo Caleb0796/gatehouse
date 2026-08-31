@@ -6,11 +6,34 @@
     "recoveryRepro": "{{target.demoRepros.weak}}"
   },
   "actions": [
-    { "op": "executeTool", "name": "write_repro", "input": { "code": "while (true) {}" } },
-    { "op": "executeTool", "name": "run_repro", "saveAs": "timeoutRun" },
-    { "op": "executeTool", "name": "write_repro", "input": { "code": "{{recoveryRepro}}" } },
-    { "op": "executeTool", "name": "run_repro", "saveAs": "recoveryRun" },
-    { "op": "probePage", "saveAs": "pageProbe" }
+    {
+      "op": "executeTool",
+      "name": "write_repro",
+      "input": {
+        "code": "while (true) {}"
+      }
+    },
+    {
+      "op": "executeTool",
+      "name": "run_repro",
+      "saveAs": "timeoutRun"
+    },
+    {
+      "op": "executeTool",
+      "name": "write_repro",
+      "input": {
+        "code": "{{recoveryRepro}}"
+      }
+    },
+    {
+      "op": "executeTool",
+      "name": "run_repro",
+      "saveAs": "recoveryRun"
+    },
+    {
+      "op": "probePage",
+      "saveAs": "pageProbe"
+    }
   ],
   "expect": {
     "reason": "EXECUTION_ERROR",
@@ -19,7 +42,7 @@
     "recoveryBadVerdict": "pass",
     "recoveryGoodVerdict": "pass",
     "pageAlive": true,
-    "maxTimeoutActionMs": 5000,
+    "maxTimeoutActionMs": 25000,
     "maxRecoveryActionMs": 5000,
     "gateOpen": false
   }

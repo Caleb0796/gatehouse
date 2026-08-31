@@ -293,7 +293,7 @@ test("run_repro returns a bounded summary while staging keeps every sample", asy
 
   assert.deepEqual(
     Object.keys(summary).sort(),
-    ["green", "reason", "repeats", "runs", "stable"],
+    ["green", "reason", "repeats", "reproSha256", "runs", "stable"],
   );
   assert.equal("samples" in summary, false);
   assert.equal(summary.runs.length, 2);

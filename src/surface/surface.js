@@ -101,6 +101,7 @@ function summarizeVerdict(verdict) {
     reason: verdict.reason,
     stable: verdict.stable,
     repeats: verdict.repeats,
+    reproSha256: verdict.reproSha256,
     runs: [
       summarizeRun(verdict, "bad"),
       summarizeRun(verdict, "good"),

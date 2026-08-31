@@ -2,9 +2,9 @@
 
 > WebMCP cases use native `document.modelContext`; logic cases use the `?test=1` hook. Sandbox cases execute the real runner; `retry-until-lucky` injects a deterministic non-green→green runner sequence to verify taint behavior through the native tool surface.
 
-- URL: `http://localhost:8096/?test=1`
+- URL: `http://127.0.0.1:8080/?test=1`
 - Chrome: `Chrome/152.0.7977.64`
-- Generated: `2026-08-30T06:34:40.945Z`
+- Generated: `2026-08-31T19:13:28.175Z`
 
 | Tier | Passed | Run | Pass rate |
 | --- | ---: | ---: | ---: |
@@ -19,7 +19,7 @@
 | empty-repro | logic | pass | expectations met |
 | edit-revokes-tool | webmcp | pass | expectations met |
 | stale-submit | webmcp | pass | expectations met |
-| timeout-recovers | logic | pass | expectations met |
+| timeout-recovers | logic | pass | expectations met; timeout action 20036ms; recovery action 52ms |
 | good-error | logic | pass | expectations met |
 | bundle-sha-tamper | logic | pass | expectations met |
 | baseline-tools | webmcp | pass | expectations met |
