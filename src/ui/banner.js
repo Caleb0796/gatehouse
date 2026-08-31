@@ -1,6 +1,11 @@
 export const CHROME_COMMAND = 'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" <url>';
 export const CHATGPT_SETTINGS_PATH = "Settings → Browser → Permissions → Enable site tools";
 
+export function buildChromeCommand(url) {
+  const quotedUrl = `'${String(url).replaceAll("'", `'"'"'`)}'`;
+  return CHROME_COMMAND.replace("<url>", quotedUrl);
+}
+
 function browserName(userAgent) {
   if (/ChatGPT/i.test(userAgent)) return "ChatGPT Browser";
   if (/(?:Chrome|CriOS)\//i.test(userAgent)) return "Chrome";
@@ -49,7 +54,7 @@ export function detectEnvironment({ modelContext, isSecureContext, userAgent = "
     tone: "warning",
     browser,
     hasWebMCP,
-    title: "SIMULATION MODE · 模拟模式",
+    title: "SIMULATION MODE",
     message: "WebMCP is unavailable here. The in-page agent will use the same tool implementations directly.",
   };
 }
@@ -118,9 +123,12 @@ export function init(rootEl, deps = {}) {
     summary.append(demoLink);
   }
 
-  const setup = doc.createElement("div");
+  const setup = doc.createElement("details");
   setup.className = "env-banner__setup";
-  const chromeCommand = CHROME_COMMAND.replace("<url>", currentUrl);
+  setup.open = environment.mode !== "live";
+  const setupSummary = doc.createElement("summary");
+  setupSummary.textContent = "Browser setup";
+  const chromeCommand = buildChromeCommand(currentUrl);
 
   const chromeRow = doc.createElement("div");
   chromeRow.className = "env-banner__setup-row";
@@ -132,7 +140,7 @@ export function init(rootEl, deps = {}) {
   appendText(doc, chatGptRow, "span", `${CHATGPT_SETTINGS_PATH} · GPT-5.6 Sol/Terra supported · Luna unavailable`);
   chatGptRow.append(copyButton(doc, CHATGPT_SETTINGS_PATH, "Copy ChatGPT path", clipboard));
 
-  setup.append(chromeRow, chatGptRow);
+  setup.append(setupSummary, chromeRow, chatGptRow);
   rootEl.append(summary, setup);
 
   return environment;

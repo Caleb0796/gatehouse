@@ -118,11 +118,16 @@ function renderSignPanel(rootEl) {
     "A green differential can stage a report. This browser-local approval is unauthenticated, does not verify identity, and is not a cryptographic signature; automation can activate the control.",
     "panel__help",
   );
+  const review = document.createElement("section");
+  review.className = "sign-panel__review";
+  review.hidden = true;
+  review.setAttribute("aria-label", "Exact staged report");
+  rootEl.append(review);
   const status = appendText(rootEl, "p", "Awaiting local approval", "sign-panel__status");
   status.setAttribute("aria-live", "polite");
   const button = appendText(rootEl, "button", "Approve & save locally", "button button--primary");
   button.type = "button";
-  return { button, status };
+  return { button, review, status };
 }
 
 function formatRun(result) {
@@ -274,6 +279,7 @@ export async function initSurface({ runDifferential, target }) {
 
   initSigning({
     button: signView.button,
+    review: signView.review,
     status: signView.status,
     getGateState: surface.gate.getState,
     getCurrentDraft: () => editorView.editor.value,

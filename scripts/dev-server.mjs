@@ -9,11 +9,14 @@ import { fileURLToPath } from "node:url";
 const ROOT = normalize(join(fileURLToPath(import.meta.url), "..", ".."));
 const HOST = "127.0.0.1";
 const PORT = process.env.PORT || 8080;
-const CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src blob:; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'";
+const CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src blob:; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const BASE_HEADERS = {
   "Content-Security-Policy": CSP,
   "Cache-Control": "no-store",
+  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+  "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
 };
 const MIME = {
   ".html": "text/html; charset=utf-8",

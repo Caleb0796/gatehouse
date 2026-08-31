@@ -9,6 +9,47 @@ function revoked(eventBus, at) {
   });
 }
 
+function appendReviewField(document, parent, label, value) {
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  detail.textContent = value;
+  parent.append(term, detail);
+}
+
+function clearReview(review) {
+  if (!review) return;
+  review.hidden = true;
+  review.replaceChildren();
+}
+
+function showReview(review, artifactDraft) {
+  if (!review) return;
+  const document = review.ownerDocument;
+  const heading = document.createElement("h3");
+  const guidance = document.createElement("p");
+  const fields = document.createElement("dl");
+  const repro = document.createElement("pre");
+  heading.textContent = "Exact staged report";
+  guidance.textContent = "Review the exact reproduction and pinned build hashes before saving this report locally.";
+  appendReviewField(document, fields, "Reproduction SHA-256", artifactDraft.reproSha256);
+  appendReviewField(
+    document,
+    fields,
+    "Reported-bad build",
+    `${artifactDraft.badVersion} · ${artifactDraft.badSha256}`,
+  );
+  appendReviewField(
+    document,
+    fields,
+    "Last-good build",
+    `${artifactDraft.goodVersion} · ${artifactDraft.goodSha256}`,
+  );
+  repro.textContent = artifactDraft.repro;
+  review.replaceChildren(heading, guidance, fields, repro);
+  review.hidden = false;
+}
+
 export async function signArtifact({
   artifactDraft,
   gateState,
@@ -60,6 +101,7 @@ export async function signArtifact({
 
 export function initSigning({
   button,
+  review,
   status,
   getGateState,
   getCurrentDraft,
@@ -70,17 +112,20 @@ export function initSigning({
   userAgent,
 }) {
   let artifactDraft = null;
+  clearReview(review);
   status.textContent = "Awaiting local approval";
   button.disabled = true;
 
   const unsubscribeStaged = eventBus.on("staged", (event) => {
     artifactDraft = event.artifactDraft;
+    showReview(review, artifactDraft);
     status.textContent = "Awaiting local approval";
     button.disabled = false;
   });
   const unsubscribeDraft = eventBus.on("draft", () => {
     if (artifactDraft === null) return;
     artifactDraft = null;
+    clearReview(review);
     status.textContent = "Draft changed · run and stage again";
     button.disabled = true;
   });
@@ -104,6 +149,7 @@ export function initSigning({
       button.disabled = false;
     } else {
       artifactDraft = null;
+      clearReview(review);
       status.textContent = "Draft changed · run and stage again";
     }
     return result;

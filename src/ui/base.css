@@ -33,10 +33,19 @@ body > header {
 }
 
 body > main {
+  align-items: start;
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
   padding: 1rem 0;
+}
+
+.workflow,
+.side-rail {
+  align-content: start;
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
 }
 
 #target-panel,
@@ -49,26 +58,6 @@ body > main {
   border-radius: 0.35rem;
   min-width: 0;
   padding: 1.1rem;
-}
-
-#target-panel,
-#editor-panel,
-#run-panel,
-#inbox-root {
-  grid-column: 1;
-}
-
-#timeline,
-#sign-panel {
-  grid-column: 2;
-}
-
-#timeline {
-  grid-row: 1 / span 3;
-}
-
-#sign-panel {
-  align-self: start;
 }
 
 h1,
@@ -183,6 +172,54 @@ button:disabled {
   padding: 0.65rem;
 }
 
+.sign-panel__review,
+.sign-panel__review dl,
+.sign-panel__review dd,
+.sign-panel__review pre {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.sign-panel__review {
+  border-block: 1px solid var(--line);
+  margin-bottom: 1rem;
+  padding-block: 1rem;
+}
+
+.sign-panel__review[hidden] {
+  display: none;
+}
+
+.sign-panel__review h3 {
+  margin: 0 0 0.5rem;
+}
+
+.sign-panel__review dl {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0 0 0.8rem;
+}
+
+.sign-panel__review dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.sign-panel__review dd {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  margin: 0 0 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.sign-panel__review pre {
+  margin: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
+
 #inbox-root pre {
   max-width: 100%;
   overflow: auto;
@@ -289,14 +326,9 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  #target-panel,
-  #editor-panel,
-  #run-panel,
-  #timeline,
-  #sign-panel,
-  #inbox-root {
+  .workflow,
+  .side-rail {
     grid-column: 1;
-    grid-row: auto;
   }
 
   .inbox-detail dl {
@@ -336,6 +368,11 @@ button:disabled {
   gap: 0.35rem;
 }
 
+.env-banner__setup > summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
 .env-banner__title {
   font-size: 1.15rem;
   letter-spacing: 0.04em;
@@ -365,6 +402,8 @@ button:disabled {
 .demo-prompt {
   background: #eef5ff;
   border: 1px solid #9bbbe5;
+  color: #172033;
+  color-scheme: light;
   display: grid;
   gap: 0.65rem;
   padding: 1rem;
@@ -376,6 +415,9 @@ button:disabled {
 }
 
 .demo-prompt__copy {
+  background: #fff;
+  border-color: #6f86a8;
+  color: #172033;
   cursor: pointer;
   font-weight: 700;
   justify-self: start;
@@ -405,6 +447,7 @@ button:disabled {
   background: #fbfaf7;
   border: 1px solid #d8d4ca;
   color: #25231f;
+  min-width: 0;
   padding: 1rem;
 }
 
@@ -467,6 +510,7 @@ button:disabled {
   display: grid;
   gap: 0.2rem;
   margin-bottom: 0.8rem;
+  min-width: 0;
   padding: 0 0.65rem;
 }
 
@@ -478,6 +522,7 @@ button:disabled {
 
 .timeline__summary {
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .timeline__time {

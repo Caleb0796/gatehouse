@@ -124,6 +124,24 @@ async function assertNoDocumentOverflow(page, label) {
   );
 }
 
+async function assertNoElementOverflow(page, selector, label) {
+  await waitForPaint(page);
+  const offenders = await page.locator(selector).evaluateAll(elements => elements.flatMap(root => [
+    root,
+    ...root.querySelectorAll("*"),
+  ]).filter(element => element.scrollWidth > element.clientWidth + 1).map(element => ({
+    tag: element.tagName,
+    className: element.className,
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  })));
+  assert.deepEqual(offenders, [], `${label}: ${JSON.stringify(offenders)}`);
+}
+
+async function assertEnglishPage(page, label) {
+  assert.doesNotMatch(await page.locator("body").innerText(), /\p{Script=Han}/u, label);
+}
+
 async function runCase(browser, baseUrl, name, run) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
@@ -186,6 +204,79 @@ async function testPlainToDemo(page, baseUrl) {
 
   assert.equal(await page.locator("#env-banner").getAttribute("data-mode"), "simulation");
   assert.equal(await page.locator(".simagent__start").textContent(), "Run three-round agent demo");
+  await assertEnglishPage(page, "deterministic demo should be English-only");
+}
+
+async function testCompleteDemoWorkflow(page, baseUrl) {
+  await page.goto(`${baseUrl}/?demo=1`);
+  await waitForApp(page);
+  await page.getByRole("button", { name: "Run three-round agent demo" }).click();
+  await page.locator('body[data-e2e="pass"]').waitFor({ timeout: 20_000 });
+
+  assert.equal(await page.locator(".simagent__status").textContent(), "Complete via in-page tools");
+  const review = page.locator(".sign-panel__review");
+  await review.waitFor({ state: "visible" });
+  const reviewText = await review.innerText();
+  assert.match(reviewText, /Exact staged report/);
+  assert.match(reviewText, new RegExp(manifest.badSha256));
+  assert.match(reviewText, new RegExp(manifest.goodSha256));
+  assert.match(reviewText, new RegExp(sha256(manifest.demoRepros.real)));
+  assert.match(reviewText, /encoded dots must stay encoded by default/);
+  await assertEnglishPage(page, "staged workflow should be English-only");
+
+  const railLayout = await page.evaluate(() => {
+    const approval = document.querySelector("#sign-panel").getBoundingClientRect();
+    const timeline = document.querySelector("#timeline").getBoundingClientRect();
+    return { approvalBottom: approval.bottom, approvalTop: approval.top, timelineTop: timeline.top };
+  });
+  assert.ok(railLayout.approvalTop < railLayout.timelineTop);
+  assert.ok(railLayout.approvalBottom <= railLayout.timelineTop);
+
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    await assertNoDocumentOverflow(page, `Staged workflow at ${viewport.width}x${viewport.height}`);
+    await assertNoElementOverflow(page, ".sign-panel__review", `Exact staged report at ${viewport.width}x${viewport.height}`);
+  }
+
+  await page.getByRole("button", { name: "Approve & save locally" }).click();
+  await page.getByText("Locally approved", { exact: true }).waitFor();
+  await page.locator("#inbox-root").waitFor({ state: "visible" });
+  await page.locator(".inbox-replay button").click();
+  await page.getByText("Replay matches recorded runs", { exact: true }).waitFor();
+
+  const receipt = page.locator(".inbox-receipt a", { hasText: "Open receipt" });
+  await receipt.waitFor({ state: "visible" });
+  const receiptUrl = await receipt.getAttribute("href");
+  await page.goto(receiptUrl);
+  await page.getByText("repro hash verified ✓", { exact: true }).waitFor();
+  await assertEnglishPage(page, "receipt should be English-only");
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    await assertNoDocumentOverflow(page, `E2E receipt at ${viewport.width}x${viewport.height}`);
+  }
+}
+
+async function testDarkModePrompt(page, baseUrl) {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(`${baseUrl}/?demo=1`);
+  await waitForApp(page);
+  const colors = await page.evaluate(() => {
+    const prompt = document.querySelector(".demo-prompt");
+    const button = document.querySelector(".demo-prompt__copy");
+    return {
+      promptBackground: getComputedStyle(prompt).backgroundColor,
+      promptText: getComputedStyle(prompt).color,
+      buttonBackground: getComputedStyle(button).backgroundColor,
+      buttonText: getComputedStyle(button).color,
+    };
+  });
+
+  assert.deepEqual(colors, {
+    promptBackground: "rgb(238, 245, 255)",
+    promptText: "rgb(23, 32, 51)",
+    buttonBackground: "rgb(255, 255, 255)",
+    buttonText: "rgb(23, 32, 51)",
+  });
 }
 
 async function stageVerifiedReport(page, baseUrl) {
@@ -360,6 +451,8 @@ try {
   browser = await chromium.launch({ headless: true });
   const cases = [
     ["plain URL opens deterministic demo", page => testPlainToDemo(page, baseUrl)],
+    ["complete demo workflow", page => testCompleteDemoWorkflow(page, baseUrl)],
+    ["dark-mode demo prompt contrast", page => testDarkModePrompt(page, baseUrl)],
     ["QuotaExceededError approval recovery", page => testPersistenceFailure(page, baseUrl, "QuotaExceededError")],
     ["SecurityError approval recovery", page => testPersistenceFailure(page, baseUrl, "SecurityError")],
     ["Receipt follows latest fragment", page => testReceiptHashChanges(page, baseUrl)],

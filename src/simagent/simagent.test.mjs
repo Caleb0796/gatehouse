@@ -40,16 +40,51 @@ test("WebMCP path discovers every tool and executes all three rounds", async () 
   assert.equal(result.mode, "live");
   assert.deepEqual(calls.filter(([kind]) => kind === "discover").length, 8);
   assert.deepEqual(calls.filter(([kind]) => kind !== "discover"), [
-    ["get_target_info", "{}"],
-    ["write_repro", JSON.stringify({ code: target.demoRepros.broken })],
-    ["run_repro", "{}"],
-    ["write_repro", JSON.stringify({ code: target.demoRepros.weak })],
-    ["run_repro", "{}"],
-    ["write_repro", JSON.stringify({ code: target.demoRepros.real })],
-    ["run_repro", "{}"],
-    ["submit_report", "{}"],
+    ["get_target_info", {}],
+    ["write_repro", { code: target.demoRepros.broken }],
+    ["run_repro", {}],
+    ["write_repro", { code: target.demoRepros.weak }],
+    ["run_repro", {}],
+    ["write_repro", { code: target.demoRepros.real }],
+    ["run_repro", {}],
+    ["submit_report", {}],
   ]);
   assert.deepEqual(waits, Array(7).fill(800));
+});
+
+test("WebMCP path falls back to legacy string input only for argument parsing errors", async () => {
+  const calls = [];
+  const invoker = createToolInvoker({
+    modelContext: {
+      getTools: async () => [{ name: "get_target_info" }],
+      async executeTool(_tool, args) {
+        calls.push(args);
+        if (typeof args !== "string") {
+          throw new Error("UnknownError: Failed to parse input arguments");
+        }
+        return JSON.stringify({ ok: true });
+      },
+    },
+  });
+
+  assert.deepEqual(await invoker.execute("get_target_info", {}), { ok: true });
+  assert.deepEqual(calls, [{}, "{}"]);
+});
+
+test("WebMCP path does not retry application errors", async () => {
+  let calls = 0;
+  const invoker = createToolInvoker({
+    modelContext: {
+      getTools: async () => [{ name: "run_repro" }],
+      async executeTool() {
+        calls += 1;
+        throw new Error("reproduction failed");
+      },
+    },
+  });
+
+  await assert.rejects(invoker.execute("run_repro", {}), /reproduction failed/);
+  assert.equal(calls, 1);
 });
 
 test("fallback path calls the current mock tool table directly", async () => {

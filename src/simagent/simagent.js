@@ -49,6 +49,10 @@ function validateTarget(target) {
   }
 }
 
+function requiresStringInput(error) {
+  return error instanceof Error && /Failed to parse input arguments/.test(error.message);
+}
+
 export function createToolInvoker({ modelContext, getToolTable }) {
   const hasWebMCP = modelContext
     && typeof modelContext.getTools === "function"
@@ -61,11 +65,13 @@ export function createToolInvoker({ modelContext, getToolTable }) {
         const tools = await modelContext.getTools();
         const tool = tools.find(candidate => toolName(candidate) === name);
         if (!tool) throw new Error(`Tool not available: ${name}`);
-        // executeTool takes args as a JSON STRING, not an object: Chrome does
-        // JSON.parse(args) then an isObject check. Passing an object raises
-        // "UnknownError: Failed to parse input arguments". Measured 2026-08-29,
-        // Chrome 152.0.7977.64.
-        const raw = await modelContext.executeTool(tool, JSON.stringify(args ?? {}));
+        let raw;
+        try {
+          raw = await modelContext.executeTool(tool, args ?? {});
+        } catch (error) {
+          if (!requiresStringInput(error)) throw error;
+          raw = await modelContext.executeTool(tool, JSON.stringify(args ?? {}));
+        }
         return typeof raw === "string" ? JSON.parse(raw) : raw;
       },
     };
@@ -132,11 +138,11 @@ export function init(rootEl, deps = {}) {
   rootEl.className = demoMode ? "simagent simagent--demo" : "simagent";
 
   const heading = doc.createElement("h2");
-  heading.textContent = "Simulated agent";
+  heading.textContent = "Agent workflow demo";
 
   const mode = doc.createElement("strong");
   mode.className = hasWebMCP ? "simagent__mode simagent__mode--live" : "simagent__mode simagent__mode--simulated";
-  mode.textContent = hasWebMCP ? "Live WebMCP tool path" : "模拟模式 · in-page tool path";
+  mode.textContent = hasWebMCP ? "Live WebMCP tool path" : "In-page tool path";
 
   const button = doc.createElement("button");
   button.type = "button";
@@ -175,7 +181,7 @@ export function init(rootEl, deps = {}) {
           item.textContent = `${step.label} · ${step.tool} · ${step.state}`;
         },
       });
-      status.textContent = `Complete via ${result.mode === "live" ? "WebMCP" : "模拟模式"}`;
+      status.textContent = `Complete via ${result.mode === "live" ? "WebMCP" : "in-page tools"}`;
     } catch (error) {
       status.textContent = `Stopped: ${error.message}`;
     } finally {

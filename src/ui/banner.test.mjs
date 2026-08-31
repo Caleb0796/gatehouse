@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   CHATGPT_SETTINGS_PATH,
   CHROME_COMMAND,
+  buildChromeCommand,
   detectEnvironment,
 } from "./banner.js";
 
@@ -32,7 +33,7 @@ test("detectEnvironment makes deterministic demo simulation mode explicit", () =
   assert.equal(result.mode, "simulation");
   assert.equal(result.tone, "warning");
   assert.equal(result.browser, "ChatGPT Browser");
-  assert.match(result.title, /模拟模式/);
+  assert.equal(result.title, "SIMULATION MODE");
 });
 
 test("detectEnvironment does not claim an in-page agent on a plain fallback URL", () => {
@@ -74,4 +75,15 @@ test("setup copy contains the complete tested paths", () => {
     CHATGPT_SETTINGS_PATH,
     "Settings → Browser → Permissions → Enable site tools",
   );
+});
+
+test("Chrome command shell-quotes untrusted page URLs", () => {
+  const url = "https://example.test/?next=';open -a Calculator;#";
+  const command = buildChromeCommand(url);
+
+  assert.equal(
+    command,
+    'open -na "Google Chrome" --args --enable-features=WebMCPTesting --user-data-dir="$HOME/.webmcp-profile" \'https://example.test/?next=\'"\'"\';open -a Calculator;#\'',
+  );
+  assert.doesNotMatch(command, /<url>/);
 });
