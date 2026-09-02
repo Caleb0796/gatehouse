@@ -43,11 +43,15 @@ The scripted fallback uses the same tool table and sandbox but does not involve 
 
 ### ChatGPT in-app browser
 
-Enable site tools in **Settings → Browser → Permissions**, open the full local URL in the in-app browser, and use a model that exposes page tools. The page banner is the source of truth for whether `document.modelContext` is available.
+1. Enable site tools in **Settings → Browser → Permissions**.
+2. Open the full live URL, <https://gatehouse-app.vercel.app/>, in ChatGPT's built-in browser.
+3. Follow the **Two-minute judge path** above. The page banner remains the source of truth for whether `document.modelContext` is available.
 
 ### Google Chrome
 
 Gatehouse was verified with Google Chrome 152.0.7977.64. For local testing, enable `chrome://flags/#enable-webmcp-testing`, restart Chrome, and open `http://127.0.0.1:8080`.
+
+The live URL works in Google Chrome too once the flag is enabled.
 
 `localhost` and `127.0.0.1` are secure contexts for this workflow. The development server binds to loopback only and serves the production CSP headers.
 
