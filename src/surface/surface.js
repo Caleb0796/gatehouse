@@ -295,7 +295,21 @@ export function createToolDefinitions({
 
 export function registerAlwaysAvailableTools(modelContext, definitions) {
   for (const name of ALWAYS_AVAILABLE_TOOLS) {
-    modelContext.registerTool(definitions[name].definition ?? definitions[name]);
+    const definition = definitions[name].definition ?? definitions[name];
+    if (
+      typeof document !== "undefined"
+      && modelContext === document.modelContext
+    ) {
+      document.modelContext.registerTool({
+        name: definition.name,
+        description: definition.description,
+        inputSchema: definition.inputSchema,
+        execute: definition.execute,
+        ...definition,
+      });
+    } else {
+      modelContext.registerTool(definition);
+    }
   }
 }
 
@@ -407,9 +421,25 @@ export function createSurface({
       }
       if (!wasOpen && state.gateOpen) {
         submitController = new AbortController();
-        modelContext.registerTool(toolTable.submit_report.definition, {
-          signal: submitController.signal,
-        });
+        const definition = toolTable.submit_report.definition;
+        if (
+          typeof document !== "undefined"
+          && modelContext === document.modelContext
+        ) {
+          document.modelContext.registerTool({
+            name: definition.name,
+            description: definition.description,
+            inputSchema: definition.inputSchema,
+            execute: definition.execute,
+            ...definition,
+          }, {
+            signal: submitController.signal,
+          });
+        } else {
+          modelContext.registerTool(definition, {
+            signal: submitController.signal,
+          });
+        }
         activeTools.add("submit_report");
         eventBus.emit("surface", {
           change: "registered",

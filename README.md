@@ -90,6 +90,22 @@ npm run eval:chrome
 6. The agent stages the report, a separate visible control records local approval, and the browser stores the artifact locally.
 7. Maintainers can replay the artifact against the same target manifest, export a regression-test starting point, and share a compressed receipt URL.
 
+### How WebMCP is wired
+
+The production document branch registers each baseline definition directly at [`src/surface/surface.js:303`](src/surface/surface.js#L303):
+
+```js
+      document.modelContext.registerTool({
+        name: definition.name,
+        description: definition.description,
+        inputSchema: definition.inputSchema,
+        execute: definition.execute,
+        ...definition,
+      });
+```
+
+The four baseline tools register during surface creation. A matching green transition registers `submit_report` with a fresh `AbortController` signal at [`src/surface/surface.js:429`](src/surface/surface.js#L429); an edit or later non-green verdict aborts that signal, and reopening the gate creates a new registration generation.
+
 The main implementation is intentionally framework-free:
 
 ```text

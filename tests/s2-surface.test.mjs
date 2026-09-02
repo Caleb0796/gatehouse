@@ -126,6 +126,61 @@ test("registration exposes the four always-available tools but not submit_report
   assert.equal(registered.includes(definitions.submit_report), false);
 });
 
+test("document.modelContext receives complete definitions and the dynamic signal", async (t) => {
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const registrations = [];
+  const documentObject = {
+    modelContext: {
+      registerTool(definition, options) {
+        registrations.push({ definition, options });
+      },
+    },
+  };
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: documentObject,
+  });
+  t.after(() => {
+    if (originalDocument === undefined) {
+      delete globalThis.document;
+    } else {
+      Object.defineProperty(globalThis, "document", originalDocument);
+    }
+  });
+
+  let surface;
+  surface = createSurface({
+    modelContext: documentObject.modelContext,
+    target,
+    async runDifferential() {
+      return {
+        green: true,
+        reason: "STABLE_LOCAL_DIFFERENTIAL",
+        stable: true,
+        reproSha256: surface.gate.getState().draftSha,
+      };
+    },
+    async requestHumanReview() {},
+    async stageReport() {},
+  });
+
+  assert.deepEqual(
+    registrations.map(({ definition }) => definition.name),
+    ["get_target_info", "write_repro", "run_repro", "request_human_review"],
+  );
+  assert.notEqual(registrations[0].definition, surface.definitions.get_target_info);
+  assert.deepEqual(registrations[0].definition, surface.definitions.get_target_info);
+
+  await surface.definitions.write_repro.execute({ code: "green repro" });
+  await surface.definitions.run_repro.execute({});
+
+  assert.equal(registrations.length, 5);
+  assert.notEqual(registrations[4].definition, surface.definitions.submit_report);
+  assert.deepEqual(registrations[4].definition, surface.definitions.submit_report);
+  assert.equal(registrations[4].options.signal instanceof AbortSignal, true);
+  assert.equal(registrations[4].options.signal.aborted, false);
+});
+
 test("get_target_info returns the pinned target and rejects fields", async () => {
   const { definitions } = setup();
 
