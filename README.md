@@ -49,7 +49,7 @@ The scripted fallback uses the same tool table and sandbox but does not involve 
 
 ### Google Chrome
 
-Gatehouse was verified with Google Chrome 152.0.7977.64. For local testing, enable `chrome://flags/#enable-webmcp-testing`, restart Chrome, and open `http://127.0.0.1:8080`.
+Gatehouse was verified with Google Chrome 152.0.7977.75. For local testing, enable `chrome://flags/#enable-webmcp-testing`, restart Chrome, and open `http://127.0.0.1:8080`.
 
 The live URL works in Google Chrome too once the flag is enabled.
 
@@ -61,8 +61,8 @@ The repository contains 13 browser-evaluation definitions. The latest recorded f
 
 | Tier | Passed | Cases | Environment |
 | --- | ---: | ---: | --- |
-| Native WebMCP | 6 | 6 | Chrome 152.0.7977.64, `--enable-features=WebMCPTesting` |
-| Logic integration | 7 | 7 | Chrome 152.0.7977.64, `?test=1` hook |
+| Native WebMCP | 6 | 6 | Chrome 152.0.7977.75, `--enable-features=WebMCPTesting` |
+| Logic integration | 7 | 7 | Chrome 152.0.7977.75, `?test=1` hook |
 | Total | 13 | 13 | Production CSP, real `qs` bundles |
 
 See [the generated results](evals/RESULTS.md). These are implementation evaluations, not a claim about probabilistic model tool-selection accuracy.
@@ -82,7 +82,7 @@ npm run eval:chrome
 
 ## How it works
 
-1. The top-level page registers the always-available tools with `document.modelContext.registerTool()`.
+1. The top-level page registers the always-available tools with `document.modelContext.registerTool()` and waits for every registration to settle before the app reports itself ready.
 2. The parent fetches the selected target's local bad and good bundles and rejects a SHA-256 mismatch.
 3. Reproduction code runs in a Worker nested inside an opaque-origin `<iframe sandbox="allow-scripts">`. The Worker is terminated on timeout; production CSP restricts requests to same-origin resources.
 4. The differential runner samples each build five times. It returns `STABLE_LOCAL_DIFFERENTIAL` only for reported-build fail 5/5 plus reference-build pass 5/5; mixed samples return `UNSTABLE`, and execution failures return `EXECUTION_ERROR`.
@@ -92,19 +92,19 @@ npm run eval:chrome
 
 ### How WebMCP is wired
 
-The production document branch registers each baseline definition directly at [`src/surface/surface.js:303`](src/surface/surface.js#L303):
+The production document branch registers each baseline definition directly at [`src/surface/surface.js:301`](src/surface/surface.js#L301):
 
 ```js
-      document.modelContext.registerTool({
-        name: definition.name,
-        description: definition.description,
-        inputSchema: definition.inputSchema,
-        execute: definition.execute,
-        ...definition,
-      });
+    return document.modelContext.registerTool({
+      name: definition.name,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      execute: definition.execute,
+      ...definition,
+    }, options);
 ```
 
-The four baseline tools register during surface creation. A matching green transition registers `submit_report` with a fresh `AbortController` signal at [`src/surface/surface.js:429`](src/surface/surface.js#L429); an edit or later non-green verdict aborts that signal, and reopening the gate creates a new registration generation.
+The four baseline tools register during surface creation, and an asynchronous registration failure aborts their shared lifecycle and fails initialization. A matching green transition registers `submit_report` with a fresh `AbortController` signal at [`src/surface/surface.js:440`](src/surface/surface.js#L440). The dynamic tool becomes visible only after registration succeeds; a rejected registration remains absent and the next green run retries it. An edit or later non-green verdict aborts a successful registration, and reopening the gate creates a new registration generation.
 
 The main implementation is intentionally framework-free:
 
@@ -140,7 +140,7 @@ The receipt keeps claim boundaries explicit: repro source integrity is checked f
 ## Reproducibility
 
 - Node.js: 22.23.1 used for the recorded results; `engines.node` requires Node 20 or newer.
-- Browser: Google Chrome 152.0.7977.64; native automated WebMCP evals require Chrome 151 or newer.
+- Browser: Google Chrome 152.0.7977.75; native automated WebMCP evals require Chrome 151 or newer.
 - Dependencies: locked by `package-lock.json`; `npm ci` installs Playwright 1.62.1.
 - Runtime: vanilla ES2022 modules with no build step.
 - Deployment headers: `vercel.json` and `scripts/check-headers.sh` keep the hosted CSP, `no-store`, and `nosniff` policies aligned with local testing.

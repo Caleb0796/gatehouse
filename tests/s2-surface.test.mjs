@@ -114,10 +114,10 @@ test("tool copy limits claims to client-side evidence", async () => {
   assert.match(copy, /not verified/);
 });
 
-test("registration exposes the four always-available tools but not submit_report", () => {
+test("registration exposes the four always-available tools but not submit_report", async () => {
   const { definitions } = setup();
   const registered = [];
-  registerAlwaysAvailableTools({ registerTool: (definition) => registered.push(definition) }, definitions);
+  await registerAlwaysAvailableTools({ registerTool: (definition) => registered.push(definition) }, definitions);
 
   assert.deepEqual(
     registered.map(({ name }) => name),
@@ -163,6 +163,7 @@ test("document.modelContext receives complete definitions and the dynamic signal
     async requestHumanReview() {},
     async stageReport() {},
   });
+  await surface.ready;
 
   assert.deepEqual(
     registrations.map(({ definition }) => definition.name),
@@ -179,6 +180,28 @@ test("document.modelContext receives complete definitions and the dynamic signal
   assert.deepEqual(registrations[4].definition, surface.definitions.submit_report);
   assert.equal(registrations[4].options.signal instanceof AbortSignal, true);
   assert.equal(registrations[4].options.signal.aborted, false);
+});
+
+test("baseline registration propagates asynchronous failures", async () => {
+  const { definitions } = setup();
+  const registered = [];
+
+  const ready = registerAlwaysAvailableTools({
+    registerTool(definition) {
+      registered.push(definition.name);
+      if (definition.name === "run_repro") {
+        return Promise.reject(new Error("registration denied"));
+      }
+    },
+  }, definitions);
+
+  assert.deepEqual(registered, [
+    "get_target_info",
+    "write_repro",
+    "run_repro",
+    "request_human_review",
+  ]);
+  await assert.rejects(ready, /registration denied/);
 });
 
 test("get_target_info returns the pinned target and rejects fields", async () => {
@@ -441,6 +464,65 @@ test("matching green registers submit_report with a signal and emits contract ev
       reason: "differential green",
       at: 0,
     },
+  );
+});
+
+test("dynamic registration waits for success and retries after rejection", async () => {
+  const windowObject = { location: { search: "?test=1" } };
+  const events = [];
+  let submitAttempts = 0;
+  const surface = createSurface({
+    modelContext: {
+      registerTool(definition) {
+        if (definition.name !== "submit_report") return;
+        submitAttempts += 1;
+        if (submitAttempts === 1) {
+          return Promise.reject(new Error("registration denied"));
+        }
+      },
+    },
+    target,
+    async runDifferential() {
+      return {
+        green: true,
+        reason: "STABLE_LOCAL_DIFFERENTIAL",
+        stable: true,
+        reproSha256: surface.gate.getState().draftSha,
+      };
+    },
+    async requestHumanReview() {},
+    async stageReport() {},
+    eventBus: {
+      emit(type, detail) {
+        events.push({ type, detail });
+      },
+    },
+    windowObject,
+  });
+  await surface.ready;
+  await surface.definitions.write_repro.execute({ code: "green repro" });
+
+  await assert.rejects(surface.definitions.run_repro.execute({}), /registration denied/);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools()).some(({ name }) => name === "submit_report"),
+    false,
+  );
+  assert.equal(
+    events.some(({ type, detail }) => (
+      type === "surface"
+      && detail.change === "registration_failed"
+      && detail.tool === "submit_report"
+    )),
+    true,
+  );
+
+  const verdict = await surface.definitions.run_repro.execute({});
+
+  assert.equal(verdict.green, true);
+  assert.equal(submitAttempts, 2);
+  assert.equal(
+    (await windowObject.__gatehouseTestHook.getTools()).some(({ name }) => name === "submit_report"),
+    true,
   );
 });
 

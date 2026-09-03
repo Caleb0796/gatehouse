@@ -221,7 +221,7 @@ export function createToolDefinitions({
         try {
           const generation = gate.beginRun();
           const verdict = await runDifferential(state.draft, { targetId: target.id });
-          gate.onVerdict(verdict, generation);
+          await gate.onVerdict(verdict, generation);
           return summarizeVerdict(verdict);
         } finally {
           runInProgress = false;
@@ -293,23 +293,31 @@ export function createToolDefinitions({
   return definitions;
 }
 
-export function registerAlwaysAvailableTools(modelContext, definitions) {
-  for (const name of ALWAYS_AVAILABLE_TOOLS) {
-    const definition = definitions[name].definition ?? definitions[name];
-    if (
-      typeof document !== "undefined"
-      && modelContext === document.modelContext
-    ) {
-      document.modelContext.registerTool({
-        name: definition.name,
-        description: definition.description,
-        inputSchema: definition.inputSchema,
-        execute: definition.execute,
-        ...definition,
-      });
-    } else {
-      modelContext.registerTool(definition);
-    }
+function registerTool(modelContext, definition, options) {
+  if (
+    typeof document !== "undefined"
+    && modelContext === document.modelContext
+  ) {
+    return document.modelContext.registerTool({
+      name: definition.name,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      execute: definition.execute,
+      ...definition,
+    }, options);
+  }
+  return modelContext.registerTool(definition, options);
+}
+
+export function registerAlwaysAvailableTools(modelContext, definitions, options) {
+  try {
+    const registrations = ALWAYS_AVAILABLE_TOOLS.map((name) => {
+      const definition = definitions[name].definition ?? definitions[name];
+      return Promise.resolve(registerTool(modelContext, definition, options));
+    });
+    return Promise.all(registrations).then(() => undefined);
+  } catch (error) {
+    return Promise.reject(error);
   }
 }
 
@@ -355,7 +363,9 @@ export function createSurface({
   let boundVerdict = null;
   let timeline = [];
   let draftMutations = Promise.resolve();
+  let submitRegistered = false;
   const activeTools = new Set(ALWAYS_AVAILABLE_TOOLS);
+  const baselineController = new AbortController();
 
   const connectedGate = {
     getState: gate.getState,
@@ -367,15 +377,19 @@ export function createSurface({
         boundVerdict = null;
 
         if (submitController !== null) {
+          const wasRegistered = submitRegistered;
           submitController.abort();
           submitController = null;
+          submitRegistered = false;
           activeTools.delete("submit_report");
-          eventBus.emit("surface", {
-            change: "revoked",
-            tool: "submit_report",
-            reason: "repro edited",
-            at: Date.now(),
-          });
+          if (wasRegistered) {
+            eventBus.emit("surface", {
+              change: "revoked",
+              tool: "submit_report",
+              reason: "repro edited",
+              at: Date.now(),
+            });
+          }
         }
         eventBus.emit("draft", {
           reproSha256: state.draftSha,
@@ -388,7 +402,7 @@ export function createSurface({
       draftMutations = update.catch(() => {});
       return update;
     },
-    onVerdict(verdict, generation) {
+    async onVerdict(verdict, generation) {
       const isLatestRun = gate.isLatestRun(generation);
       const wasOpen = gate.getState().gateOpen;
       const state = gate.onVerdict(verdict, generation);
@@ -409,37 +423,45 @@ export function createSurface({
       }
       if (wasOpen && !state.gateOpen) {
         boundVerdict = null;
-        submitController.abort();
+        const wasRegistered = submitRegistered;
+        submitController?.abort();
         submitController = null;
+        submitRegistered = false;
         activeTools.delete("submit_report");
-        eventBus.emit("surface", {
-          change: "revoked",
-          tool: "submit_report",
-          reason: "differential not green",
-          at: Date.now(),
-        });
-      }
-      if (!wasOpen && state.gateOpen) {
-        submitController = new AbortController();
-        const definition = toolTable.submit_report.definition;
-        if (
-          typeof document !== "undefined"
-          && modelContext === document.modelContext
-        ) {
-          document.modelContext.registerTool({
-            name: definition.name,
-            description: definition.description,
-            inputSchema: definition.inputSchema,
-            execute: definition.execute,
-            ...definition,
-          }, {
-            signal: submitController.signal,
-          });
-        } else {
-          modelContext.registerTool(definition, {
-            signal: submitController.signal,
+        if (wasRegistered) {
+          eventBus.emit("surface", {
+            change: "revoked",
+            tool: "submit_report",
+            reason: "differential not green",
+            at: Date.now(),
           });
         }
+      }
+      if (state.gateOpen && !submitRegistered && submitController === null) {
+        const controller = new AbortController();
+        submitController = controller;
+        const definition = toolTable.submit_report.definition;
+        try {
+          await registerTool(modelContext, definition, {
+            signal: controller.signal,
+          });
+        } catch (error) {
+          controller.abort();
+          if (submitController === controller) {
+            submitController = null;
+          }
+          eventBus.emit("surface", {
+            change: "registration_failed",
+            tool: "submit_report",
+            reason: "registration failed",
+            at: Date.now(),
+          });
+          throw error;
+        }
+        if (controller.signal.aborted || submitController !== controller) {
+          return state;
+        }
+        submitRegistered = true;
         activeTools.add("submit_report");
         eventBus.emit("surface", {
           change: "registered",
@@ -476,8 +498,13 @@ export function createSurface({
     ]),
   );
   currentToolTable = toolTable;
-  registerAlwaysAvailableTools(modelContext, toolTable);
+  const ready = registerAlwaysAvailableTools(modelContext, toolTable, {
+    signal: baselineController.signal,
+  }).catch((error) => {
+    baselineController.abort();
+    throw error;
+  });
   installTestHook(windowObject, toolTable, activeTools);
 
-  return { gate: connectedGate, definitions };
+  return { gate: connectedGate, definitions, ready };
 }

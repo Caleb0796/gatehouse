@@ -247,6 +247,7 @@ export async function initSurface({ runDifferential, target }) {
     },
     async stageReport() {},
   });
+  await surface.ready;
 
   let draftUpdate = Promise.resolve();
   let pendingEditorDrafts = 0;

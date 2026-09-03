@@ -46,6 +46,7 @@ const surface = createSurface({
   },
   async stageReport() {},
 });
+await surface.ready;
 
 initSigning({
   button: document.querySelector("#sign"),
